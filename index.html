@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Collezione Puntine</title>
+    <title>Collezione Puntine e Calendario</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Inter Font -->
@@ -24,7 +24,7 @@
             border-radius: 12px;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             width: 100%;
-            max-width: 500px;
+            max-width: 900px; /* Aumentato per il calendario */
         }
         .header {
             color: #4f46e5;
@@ -92,6 +92,14 @@
                 align-items: center;
             }
         }
+        /* Stile specifico per il calendario */
+        .calendar-box {
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            background-color: white;
+        }
     </style>
 </head>
 <body>
@@ -119,6 +127,10 @@
             appId: "1:709491476433:web:cfcfc6d94bc2a5ef41c2f0"
             // measurementId: "G-4B73CB0RT4" non necessario qui
         };
+        
+        // Stato globale per il calendario
+        window.currentCalendarDate = new Date(); // Inizia con il mese corrente
+        window.calendarEvents = [];
     </script>
 
     <!-- *************************************************************** -->
@@ -160,6 +172,8 @@
 
         const getRequestsCollection = () => collection(db, `artifacts/${appId}/public/data/thumbtack_requests`);
         const getAdminUsersCollection = () => collection(db, `artifacts/${appId}/public/data/all_users_view`); 
+        // Nuova collezione per gli eventi del calendario
+        const getEventsCollection = () => collection(db, `artifacts/${appId}/public/data/calendar_events`); 
 
         const showView = (html) => {
             document.getElementById('content').innerHTML = html;
@@ -479,6 +493,8 @@
                     <p class="text-indigo-700 text-sm mt-1">Puntine Totali: <span class="font-bold text-xl">${currentUserData.totalThumbtacks}</span></p>
                     ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
                 </div>
+                
+                <button onclick="window.renderCalendarView()" class="btn-primary mb-6">Visualizza Calendario Eventi</button>
 
                 <h3 class="text-lg font-semibold mb-3 text-gray-700">Invia Nuova Richiesta</h3>
                 <div class="p-4 border border-gray-200 rounded-lg">
@@ -581,7 +597,10 @@
             const html = `
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Dashboard Admin</h2>
-                    <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
+                    <div class="flex space-x-3">
+                        <button onclick="window.renderCalendarView()" class="text-sm font-semibold text-indigo-500 hover:text-indigo-700">Calendario</button>
+                        <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
+                    </div>
                 </div>
 
                 <div class="bg-red-100 p-4 rounded-lg mb-6">
@@ -674,6 +693,212 @@
             }
         };
 
+        // --- CALENDAR LOGIC AND UI ---
+
+        const generateCalendarHtml = (date) => {
+            const year = date.getFullYear();
+            const month = date.getMonth(); // 0-indexed
+            const today = new Date();
+            const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+
+            // Days of the week (Italian)
+            const daysOfWeek = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
+
+            // Get the first day of the month and last day of the month
+            const firstDayOfMonth = new Date(year, month, 1);
+            const lastDayOfMonth = new Date(year, month + 1, 0);
+            const daysInMonth = lastDayOfMonth.getDate();
+            const startDayOfWeek = firstDayOfMonth.getDay(); // 0 (Sunday) to 6 (Saturday)
+
+            // Filter events for the current month
+            const monthString = year + '-' + String(month + 1).padStart(2, '0');
+            const monthlyEvents = (window.calendarEvents || []).filter(event => 
+                event.date && event.date.startsWith(monthString)
+            );
+
+            // Create a map of day number to events for quick lookup
+            const eventsMap = monthlyEvents.reduce((acc, event) => {
+                const day = parseInt(event.date.substring(8, 10), 10);
+                if (!acc[day]) acc[day] = [];
+                acc[day].push(event);
+                return acc;
+            }, {});
+
+            let calendarGrid = '';
+            let day = 1;
+
+            // Fill initial empty days (padding for the first week)
+            for (let i = 0; i < startDayOfWeek; i++) {
+                calendarGrid += `<div class="p-2 border border-gray-100 bg-gray-50/50 text-gray-400"></div>`;
+            }
+
+            // Fill days of the month
+            while (day <= daysInMonth) {
+                const dateString = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+                const isToday = isCurrentMonth && day === today.getDate();
+                const dayEvents = eventsMap[day] || [];
+
+                const dayClasses = `p-2 border border-gray-200 h-24 sm:h-32 relative transition-colors cursor-default ${isToday ? 'bg-indigo-100 border-indigo-400 font-bold' : 'bg-white hover:bg-gray-50'}`;
+
+                let eventHtml = '';
+                if (dayEvents.length > 0) {
+                    eventHtml = dayEvents.map(event => `
+                        <div class="mt-1 text-xs truncate bg-red-500 text-white rounded px-1.5 py-0.5" 
+                             title="${event.title}: ${event.description}">
+                            ${event.title}
+                        </div>
+                    `).join('');
+                }
+
+                calendarGrid += `
+                    <div class="${dayClasses}">
+                        <div class="text-right text-sm">${day}</div>
+                        ${eventHtml}
+                    </div>
+                `;
+                day++;
+            }
+
+            // Header HTML (Month/Year and navigation)
+            const monthYearString = date.toLocaleDateString('it-IT', { year: 'numeric', month: 'long' });
+            
+            const headerHtml = `
+                <div class="flex justify-between items-center mb-4 p-4 bg-indigo-50 rounded-t-xl">
+                    <button onclick="window.navigateCalendar(-1)" class="btn-secondary px-3 py-1 text-sm">&lt; Precedente</button>
+                    <h2 class="text-xl font-bold text-indigo-800">${monthYearString.charAt(0).toUpperCase() + monthYearString.slice(1)}</h2>
+                    <button onclick="window.navigateCalendar(1)" class="btn-secondary px-3 py-1 text-sm">Successivo &gt;</button>
+                </div>
+            `;
+
+            // Calendar structure
+            const bodyHtml = `
+                <div class="grid grid-cols-7 text-center font-semibold text-gray-700 border-t border-b border-gray-300">
+                    ${daysOfWeek.map(day => `<div class="p-2 text-sm">${day}</div>`).join('')}
+                </div>
+                <div class="grid grid-cols-7" id="calendar-grid">
+                    ${calendarGrid}
+                </div>
+            `;
+
+            return headerHtml + bodyHtml;
+        };
+
+        const navigateCalendar = (offset) => {
+            const newDate = new Date(window.currentCalendarDate);
+            newDate.setMonth(newDate.getMonth() + offset);
+            renderCalendarView(newDate);
+        };
+        
+        const handleBackToDashboard = () => {
+            if (isAdmin) {
+                renderAdminDashboard();
+            } else {
+                renderUserDashboard();
+            }
+        }
+        
+        const renderCalendarView = (date = window.currentCalendarDate) => {
+            window.currentCalendarDate = date; // Update global state
+            
+            const adminControls = isAdmin ? `
+                <div class="mb-6 p-4 border border-indigo-300 bg-indigo-50 rounded-xl flex justify-between items-center">
+                    <p class="text-indigo-700 font-medium">Gestione Eventi (Admin)</p>
+                    <button onclick="window.renderEventModal()" class="btn-primary flex items-center w-auto px-4 py-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                        </svg>
+                        Aggiungi Evento
+                    </button>
+                </div>
+            ` : '';
+            
+            const backButton = `
+                <div class="mb-4">
+                    <button onclick="window.handleBackToDashboard()" class="text-sm text-indigo-500 hover:text-indigo-700 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Torna alla Dashboard
+                    </button>
+                </div>
+            `;
+
+            const html = `
+                <div id="calendar-container" class="w-full">
+                    ${backButton}
+                    <h1 class="text-3xl header text-center">Calendario Eventi</h1>
+                    ${adminControls}
+                    <div class="calendar-box border border-gray-300 rounded-xl overflow-hidden shadow-xl">
+                        ${generateCalendarHtml(date)}
+                    </div>
+                </div>
+            `;
+            showView(html);
+        };
+        
+        // Admin function to open the event creation modal
+        const renderEventModal = (date = null) => {
+            if (!isAdmin) return;
+            const container = document.getElementById('app-container');
+            const existingModal = document.getElementById('event-modal');
+            if (existingModal) existingModal.remove();
+
+            const todayString = new Date().toISOString().substring(0, 10);
+            const initialDate = date ? date.toISOString().substring(0, 10) : todayString;
+
+            const modalHTML = `
+                <div id="event-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="card max-w-md">
+                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">Aggiungi Nuovo Evento</h3>
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Titolo Evento</label>
+                        <input type="text" id="event_title" placeholder="Riunione, Scadenza, Fiera..." class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                        <input type="date" id="event_date" value="${initialDate}" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Descrizione (facoltativa)</label>
+                        <textarea id="event_description" placeholder="Dettagli dell'evento..." class="w-full p-3 mb-6 border border-gray-300 rounded-lg"></textarea>
+                        
+                        <div class="flex justify-end space-x-3">
+                            <button onclick="document.getElementById('event-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
+                            <button onclick="window.submitNewEvent()" class="btn-primary w-auto px-4 py-2">Salva Evento</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterend', modalHTML);
+        };
+
+        const submitNewEvent = async () => {
+            if (!isAdmin) return;
+            const title = document.getElementById('event_title').value.trim();
+            const date = document.getElementById('event_date').value;
+            const description = document.getElementById('event_description').value.trim();
+
+            if (!title || !date) {
+                showMessageBox("Attenzione", "Inserisci il titolo e la data dell'evento.", "alert");
+                return;
+            }
+
+            document.getElementById('event-modal').remove(); // Chiude il modale
+            showLoader(true);
+            
+            try {
+                await addDoc(getEventsCollection(), {
+                    title: title,
+                    date: date, // Formato YYYY-MM-DD per l'ordinamento
+                    description: description,
+                    createdAt: new Date().toISOString(),
+                    createdBy: currentUserData.username
+                });
+                showMessageBox("Successo", `L'evento '${title}' è stato aggiunto al calendario.`, "success");
+            } catch (error) {
+                console.error("Errore nell'aggiunta dell'evento:", error);
+                showMessageBox("Errore", "Impossibile salvare l'evento.", "error");
+            }
+            showLoader(false);
+        };
 
         // --- REAL-TIME DATA LISTENERS ---
 
@@ -702,6 +927,7 @@
                         renderAdminDashboard();
                     }
                 }, (error) => console.error("Errore nel listener Richieste:", error));
+                
                 
             } else {
                 // Regular user 
@@ -737,6 +963,17 @@
                     }
                 }, (error) => console.error("Errore nel listener Richieste Utente:", error));
             }
+            
+            // 3. Calendar Events (Publicly viewable by all)
+            // L'ordinamento per data (stringa YYYY-MM-DD) assicura che gli eventi futuri appaiano per primi.
+            const qEvents = query(getEventsCollection(), orderBy("date", "asc")); 
+            onSnapshot(qEvents, (snapshot) => {
+                window.calendarEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Se la vista calendario è attualmente renderizzata, ridisegnala
+                if (document.getElementById('calendar-container')) {
+                    renderCalendarView(window.currentCalendarDate);
+                }
+            }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
         };
 
         // --- MAIN APPLICATION FLOW ---
@@ -772,6 +1009,13 @@
         window.handleRankChange = handleRankChange;
         window.handleRequestAction = handleRequestAction;
         window.handleAdminPasswordChange = handleAdminPasswordChange;
+        
+        // --- CALENDAR FUNCTIONS EXPOSED ---
+        window.renderCalendarView = renderCalendarView;
+        window.navigateCalendar = navigateCalendar;
+        window.renderEventModal = renderEventModal;
+        window.submitNewEvent = submitNewEvent;
+        window.handleBackToDashboard = handleBackToDashboard;
         
     </script>
 </body>
