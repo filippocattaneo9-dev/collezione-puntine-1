@@ -24,7 +24,7 @@
             border-radius: 12px;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             width: 100%;
-            max-width: 900px; /* Aumentato per il calendario */
+            max-width: 900px; 
         }
         .header {
             color: #4f46e5;
@@ -87,11 +87,6 @@
             background-color: #d1fae5;
             color: #059669;
         }
-        @media (min-width: 640px) {
-            body {
-                align-items: center;
-            }
-        }
         /* Stile specifico per il calendario */
         .calendar-box {
             border: 1px solid #e0e0e0;
@@ -99,6 +94,28 @@
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             background-color: white;
+        }
+        /* Stile specifico per card di credito */
+        .credit-card {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .card-number {
+            font-family: monospace;
+            font-size: 1.5rem;
+            letter-spacing: 3px;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            display: block;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+        @media (min-width: 640px) {
+            body {
+                align-items: center;
+            }
         }
     </style>
 </head>
@@ -125,12 +142,12 @@
             storageBucket: "puntine-collector.firebasestorage.app",
             messagingSenderId: "709491476433",
             appId: "1:709491476433:web:cfcfc6d94bc2a5ef41c2f0"
-            // measurementId: "G-4B73CB0RT4" non necessario qui
         };
         
-        // Stato globale per il calendario
-        window.currentCalendarDate = new Date(); // Inizia con il mese corrente
+        // Stato globale per il calendario e le carte
+        window.currentCalendarDate = new Date(); 
         window.calendarEvents = [];
+        window.fakeCreditCards = []; // Nuova variabile globale per le carte
     </script>
 
     <!-- *************************************************************** -->
@@ -139,14 +156,14 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 
         setLogLevel('Debug'); // Mostra i log di Firestore nella console per il debug
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const config = firebaseConfig; // Usa la configurazione definita nel blocco script precedente
+        const config = firebaseConfig; 
 
         // --- GLOBAL STATE & FIREBASE SETUP ---
         const app = initializeApp(config);
@@ -172,8 +189,9 @@
 
         const getRequestsCollection = () => collection(db, `artifacts/${appId}/public/data/thumbtack_requests`);
         const getAdminUsersCollection = () => collection(db, `artifacts/${appId}/public/data/all_users_view`); 
-        // Nuova collezione per gli eventi del calendario
         const getEventsCollection = () => collection(db, `artifacts/${appId}/public/data/calendar_events`); 
+        // Nuova collezione per le carte di credito finte
+        const getCardsCollection = () => collection(db, `artifacts/${appId}/public/data/fake_credit_cards`);
 
         const showView = (html) => {
             document.getElementById('content').innerHTML = html;
@@ -184,6 +202,13 @@
             document.getElementById('content').classList.toggle('hidden', show);
         };
 
+        // Formattazione per la valuta
+        const formatCurrency = (amount) => {
+            return new Intl.NumberFormat('it-IT', {
+                style: 'currency',
+                currency: 'EUR'
+            }).format(amount);
+        };
 
         // Simple modal implementation (to replace alert/confirm)
         const showMessageBox = (title, message, type = 'info', confirmCallback = null) => {
@@ -239,7 +264,6 @@
         const initializeAuth = async () => {
             showLoader(true);
             try {
-                // Esegui sempre il sign-in anonimo per ottenere un UID
                 await signInAnonymously(auth); 
             } catch (error) {
                 console.error("Errore nell'autenticazione iniziale:", error);
@@ -247,8 +271,8 @@
             }
         };
 
-        const handleSignIn = async (username, password, email = '') => { // Accetta l'email come parametro opzionale
-            showLoader(true); // Attiva il loader
+        const handleSignIn = async (username, password, email = '') => { 
+            showLoader(true); 
 
             if (!username || !password) {
                 showMessageBox("Attenzione", "Inserisci username e password.", "alert");
@@ -256,15 +280,13 @@
                 return;
             }
             
-            // Riferimento al documento utente (ID documento = username)
             const userRef = doc(getAdminUsersCollection(), username);
             
             try {
                 const userSnap = await getDoc(userRef);
 
                 let userData;
-                let isRegistration = false;
-
+                
                 if (userSnap.exists()) {
                     // 1. Login
                     userData = userSnap.data();
@@ -275,14 +297,12 @@
                         return;
                     }
 
-                    // Se l'UID di autenticazione è cambiato, aggiorna il profilo
                     if (userData.authUid !== currentUserId) {
                         await updateDoc(userRef, { authUid: currentUserId });
                     }
 
                 } else {
                     // 2. Registration
-                    isRegistration = true;
                     const isNewAdmin = (username === ADMIN_USERNAME && password === ADMIN_PASSWORD);
                     const initialRank = isNewAdmin ? 'Presidente' : 'Non classificato';
                     const initialRole = isNewAdmin ? 'admin' : 'user';
@@ -296,7 +316,7 @@
                     userData = {
                         username: username,
                         password: password, 
-                        email: email, // Salva l'email se fornita
+                        email: email, 
                         authUid: currentUserId,
                         role: initialRole,
                         rank: initialRank,
@@ -304,7 +324,6 @@
                         lastUpdate: new Date().toISOString()
                     };
 
-                    // Save new user data
                     await setDoc(userRef, userData);
                 }
 
@@ -312,17 +331,14 @@
                 currentUserData = userData;
                 isAdmin = currentUserData.role === 'admin';
                 
-                // SECURITY CHECK: Se è Admin e sta usando la password predefinita, forzare il cambio.
                 if (isAdmin && currentUserData.password === ADMIN_PASSWORD) {
                     renderAdminPasswordChangePrompt();
                     showLoader(false);
-                    return; // Interrompe il flusso, l'accesso alla dashboard avverrà dopo il cambio password.
+                    return; 
                 }
 
-                // Avvia i listener di dati
                 startListeningForData();
 
-                // Naviga subito alla dashboard, il listener poi aggiornerà in real-time
                 if (isAdmin) {
                     renderAdminDashboard();
                 } else {
@@ -333,21 +349,19 @@
                 console.error("Errore durante il login/registrazione:", error);
                 showMessageBox("Errore di Sistema", "Si è verificato un errore durante l'accesso. Controlla la console.", "error");
             }
-            showLoader(false); // Disattiva il loader (dovrebbe essere sempre raggiunto)
+            showLoader(false);
         };
 
         const handleLogout = async () => {
             try {
-                // Per un'app che usa solo l'autenticazione anonima, ricaricare la pagina 
-                // dopo il logout costringe Firebase a creare una nuova sessione anonima.
                 location.reload(); 
             } catch (error) {
                 console.error("Logout failed:", error);
             }
         };
 
-        // --- UI MANAGEMENT ---
-        
+        // --- UI MANAGEMENT (omitted renderWelcomeScreen, renderAdminPasswordChangePrompt, etc. for brevity) ---
+        // ... (existing UI functions) ...
         const renderWelcomeScreen = () => {
             const html = `
                 <p class="text-gray-600 text-center mb-6">Benvenuto nel sistema di collezione di puntine!</p>
@@ -414,10 +428,8 @@
                     lastUpdate: new Date().toISOString()
                 });
 
-                // Update local data
                 currentUserData.password = newPassword; 
 
-                // Continue to dashboard
                 showMessageBox("Successo", "Password Admin aggiornata con successo! Accesso alla Dashboard.", "success", () => {
                     startListeningForData();
                     renderAdminDashboard();
@@ -429,20 +441,19 @@
             }
             showLoader(false);
         };
+        // ... (end of existing UI functions) ...
 
 
         // --- USER DASHBOARD ---
 
         const renderUserDashboard = () => {
             const thumbtackRequests = window.thumbtackRequests || [];
-            
-            // Filtra le richieste dell'utente corrente
-            const userRequests = thumbtackRequests.filter(r => r.authUid === currentUserId);
+            const userCards = window.fakeCreditCards || []; // Le carte dell'utente
 
-            // Filtra le richieste in sospeso e la cronologia
+            // Filtra le richieste dell'utente corrente (omitted for brevity, as the logic is complex)
+            const userRequests = thumbtackRequests.filter(r => r.authUid === currentUserId);
             const userPendingRequests = userRequests.filter(r => r.status === 'Pending');
             const userHistoryRequests = userRequests.filter(r => r.status !== 'Pending');
-
 
             let pendingRequestsHTML = '';
             if (userPendingRequests.length > 0) {
@@ -459,9 +470,62 @@
                 `;
             }
 
-            let historyRequestsHTML = '';
-            if (userHistoryRequests.length > 0) {
-                historyRequestsHTML = `
+            let cardListHTML = '';
+            if (userCards.length > 0) {
+                cardListHTML = userCards.map(card => `
+                    <div class="credit-card mb-4">
+                        <p class="text-sm font-light">Carta Finta Registrata</p>
+                        <span class="card-number">${card.id.replace(/(\d{4})/g, '$1 ').trim()}</span>
+                        <div class="flex justify-between items-center text-xl font-bold">
+                            <p>Saldo Attuale:</p>
+                            <p class="text-green-300">${formatCurrency(card.balance)}</p>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                 cardListHTML = `<p class="text-center text-gray-500 py-4">Nessuna carta registrata. Registrane una qui sotto!</p>`;
+            }
+
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username}</h2>
+                    <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
+                </div>
+
+                <div class="bg-indigo-50 p-4 rounded-lg mb-6 shadow-inner">
+                    <p class="text-indigo-700 text-sm">Il tuo Grado: <span class="font-bold">${currentUserData.rank}</span></p>
+                    <p class="text-indigo-700 text-sm mt-1">Puntine Totali: <span class="font-bold text-xl">${currentUserData.totalThumbtacks}</span></p>
+                    ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
+                </div>
+                
+                <button onclick="window.renderCalendarView()" class="btn-primary mb-6">Visualizza Calendario Eventi</button>
+                
+                
+                <!-- SEZIONE GESTIONE CARTE -->
+                <h3 class="text-xl font-bold text-gray-700 mb-3 mt-6 border-b pb-2">Gestione Carte di Credito Finte</h3>
+                <div id="card-list" class="mb-6">
+                    ${cardListHTML}
+                </div>
+                
+                <div class="p-4 border border-gray-200 rounded-lg mb-8">
+                    <h4 class="text-lg font-semibold mb-3 text-gray-700">Registra Nuova Carta (12 Cifre)</h4>
+                    <input type="text" id="card_number_input" placeholder="XXXX XXXX XXXX" maxlength="12" pattern="[0-9]{12}" 
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 12);" 
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-center text-lg font-mono" />
+                    <button onclick="window.registerNewCard()" class="btn-primary">Registra Carta</button>
+                </div>
+                <!-- FINE SEZIONE CARTE -->
+
+                <h3 class="text-lg font-semibold mb-3 text-gray-700 border-b pb-2">Invia Richiesta Puntine</h3>
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <label for="thumbtack_count" class="block text-sm font-medium text-gray-700 mb-2">Quante puntine hai collezionato?</label>
+                    <input type="number" id="thumbtack_count" min="1" value="1" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
+                    <button onclick="window.submitThumbtackRequest()" class="btn-primary">Invia per Approvazione</button>
+                </div>
+                
+                ${pendingRequestsHTML}
+                
+                ${userHistoryRequests.length > 0 ? `
                     <h3 class="text-lg font-semibold mt-6 mb-3 text-gray-700">Storico Richieste Recenti</h3>
                     <div class="border rounded-lg overflow-hidden">
                     ${userHistoryRequests.map((req, index) => {
@@ -478,81 +542,20 @@
                         `;
                     }).join('')}
                     </div>
-                `;
-            }
-
-
-            const html = `
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username}</h2>
-                    <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
-                </div>
-
-                <div class="bg-indigo-50 p-4 rounded-lg mb-6 shadow-inner">
-                    <p class="text-indigo-700 text-sm">Il tuo Grado: <span class="font-bold">${currentUserData.rank}</span></p>
-                    <p class="text-indigo-700 text-sm mt-1">Puntine Totali: <span class="font-bold text-xl">${currentUserData.totalThumbtacks}</span></p>
-                    ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
-                </div>
-                
-                <button onclick="window.renderCalendarView()" class="btn-primary mb-6">Visualizza Calendario Eventi</button>
-
-                <h3 class="text-lg font-semibold mb-3 text-gray-700">Invia Nuova Richiesta</h3>
-                <div class="p-4 border border-gray-200 rounded-lg">
-                    <label for="thumbtack_count" class="block text-sm font-medium text-gray-700 mb-2">Quante puntine hai collezionato?</label>
-                    <input type="number" id="thumbtack_count" min="1" value="1" class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
-                    <button onclick="window.submitThumbtackRequest()" class="btn-primary">Invia per Approvazione</button>
-                </div>
-                
-                ${pendingRequestsHTML}
-                ${historyRequestsHTML}
+                ` : ''}
             `;
             showView(html);
         };
-
-        const submitThumbtackRequest = async () => {
-            const countInput = document.getElementById('thumbtack_count');
-            const quantity = parseInt(countInput.value, 10);
-
-            if (isNaN(quantity) || quantity <= 0) {
-                showMessageBox("Attenzione", "Inserisci una quantità di puntine valida (maggiore di zero).", "alert");
-                return;
-            }
-
-            // Controlla se ci sono richieste in sospeso
-            if (window.thumbtackRequests && window.thumbtackRequests.some(r => r.authUid === currentUserId && r.status === 'Pending')) {
-                showMessageBox("Attenzione", "Hai già una richiesta in sospeso. Attendi l'approvazione dell'Admin.", "alert");
-                return;
-            }
-
-            showLoader(true);
-            try {
-                // Aggiungi la richiesta alla collezione pubblica
-                await addDoc(getRequestsCollection(), {
-                    username: currentUserData.username,
-                    authUid: currentUserId,
-                    quantity: quantity,
-                    status: 'Pending',
-                    timestamp: new Date().toISOString()
-                });
-                countInput.value = '1';
-                showMessageBox("Richiesta Inviata", `Richiesta di ${quantity} puntine inviata con successo all'Admin!`, "success");
-            } catch (error) {
-                console.error("Errore nell'invio della richiesta:", error);
-                showMessageBox("Errore", "Impossibile inviare la richiesta.", "error");
-            }
-            showLoader(false);
-        };
-
-
+        
         // --- ADMIN DASHBOARD ---
 
         const renderAdminDashboard = () => {
             const allUsers = window.allUsers || [];
-            // Mostra solo le richieste in sospeso per l'Admin
             const thumbtackRequests = (window.thumbtackRequests || []).filter(r => r.status === 'Pending');
+            const allCards = window.fakeCreditCards || [];
 
-            // HTML per la lista degli Utenti e il Rank Management
-            const usersHtml = allUsers.map((user, index) => {
+            // ... (HTML per Utenti e Richieste - omesso per brevità, non è cambiato) ...
+             const usersHtml = allUsers.map((user, index) => {
                 const currentRankIndex = RANKS.indexOf(user.rank);
                 const nextRankIndex = currentRankIndex < RANKS.length - 1 ? currentRankIndex + 1 : currentRankIndex;
                 const nextRankName = RANKS[nextRankIndex];
@@ -577,7 +580,6 @@
                 `;
             }).join('');
 
-            // HTML per le Richieste Pendenti
             const requestsHtml = thumbtackRequests.length > 0 ? thumbtackRequests.map((req, index) => `
                 <div class="list-item ${index % 2 === 0 ? 'bg-red-50' : 'bg-white'}">
                     <div class="flex-1 min-w-0 mr-4">
@@ -592,6 +594,25 @@
                     </div>
                 </div>
             `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna richiesta di puntine in sospeso.</p>';
+            
+            // HTML per la lista di TUTTE le Carte
+            const adminCardsHtml = allCards.length > 0 ? allCards.map((card, index) => `
+                <div class="list-item ${index % 2 === 0 ? 'bg-indigo-50' : 'bg-white'} flex-wrap sm:flex-nowrap">
+                    <div class="flex-1 min-w-0 mr-4 p-1">
+                        <p class="font-bold text-gray-900 text-lg font-mono">${card.id.replace(/(\d{4})/g, '$1 ').trim()}</p>
+                        <p class="text-sm text-gray-500">Proprietario: <span class="font-semibold">${card.ownerUsername}</span></p>
+                    </div>
+                    <div class="min-w-0 mr-4 p-1">
+                        <p class="text-lg font-bold text-indigo-600 whitespace-nowrap">Saldo: ${formatCurrency(card.balance)}</p>
+                    </div>
+                    <div class="flex space-x-2 mt-2 sm:mt-0">
+                        <button onclick="window.renderBalanceModal('${card.id}', ${card.balance}, '${card.ownerUsername}')" 
+                                class="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[100px]">Modifica</button>
+                        <button onclick="window.handleAdminCardAction('${card.id}', 'delete')" 
+                                class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Rimuovi</button>
+                    </div>
+                </div>
+            `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna carta finta registrata nel sistema.</p>';
 
 
             const html = `
@@ -603,12 +624,13 @@
                     </div>
                 </div>
 
+                <!-- SEZIONE RICHIESTE PUNTINE -->
                 <div class="bg-red-100 p-4 rounded-lg mb-6">
                     <h3 class="text-xl font-bold text-red-700 flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                         </svg>
-                        Richieste Pendenti
+                        Richieste Puntine Pendenti
                         ${thumbtackRequests.length > 0 ? `<span class="badge badge-pending ml-3">${thumbtackRequests.length}</span>` : ''}
                     </h3>
                 </div>
@@ -616,7 +638,14 @@
                 <div class="border rounded-lg overflow-hidden mb-8">
                     ${requestsHtml}
                 </div>
-
+                
+                <!-- SEZIONE GESTIONE CARTE (ADMIN) -->
+                <h3 class="text-xl font-bold text-indigo-700 mb-3 border-b pb-2">Gestione Carte di Credito Finte (Globale)</h3>
+                <div class="border rounded-lg overflow-hidden mb-8">
+                    ${adminCardsHtml}
+                </div>
+                
+                <!-- SEZIONE GESTIONE UTENTI -->
                 <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Statistiche)</h3>
                 <div class="border rounded-lg overflow-hidden">
                     ${usersHtml}
@@ -624,34 +653,295 @@
             `;
             showView(html);
         };
+        
+        // --- CARD MANAGEMENT LOGIC ---
 
-        const handleRankChange = async (username) => {
-            const user = window.allUsers.find(u => u.username === username);
-            if (!user) return;
+        const isValidCardNumber = (cardNumber) => {
+            const cleaned = cardNumber.replace(/\s/g, '');
+            return /^\d{12}$/.test(cleaned);
+        };
 
-            const currentRankIndex = RANKS.indexOf(user.rank);
-            if (currentRankIndex >= RANKS.length - 1) {
-                showMessageBox("Attenzione", "L'utente ha già il grado massimo.", "alert");
+        const registerNewCard = async () => {
+            const input = document.getElementById('card_number_input');
+            const cardNumber = input.value.trim();
+
+            if (!isValidCardNumber(cardNumber)) {
+                showMessageBox("Errore", "Il numero di carta deve essere esattamente di 12 cifre numeriche.", "error");
+                return;
+            }
+            
+            // Verifica se la carta esiste già
+            const cardRef = doc(getCardsCollection(), cardNumber);
+            const cardSnap = await getDoc(cardRef);
+
+            if (cardSnap.exists()) {
+                showMessageBox("Errore", "Questa carta è già stata registrata nel sistema.", "error");
+                return;
+            }
+            
+            showLoader(true);
+            try {
+                const newCardData = {
+                    ownerUid: currentUserId,
+                    ownerUsername: currentUserData.username,
+                    balance: 0.00, // Inizia con saldo zero
+                    createdAt: new Date().toISOString()
+                };
+
+                // Uso il numero di carta come ID del documento
+                await setDoc(cardRef, newCardData);
+                input.value = '';
+                showMessageBox("Successo", `Carta ${cardNumber} registrata con successo! Saldo iniziale: ${formatCurrency(0)}.`, "success");
+            } catch (error) {
+                console.error("Errore nella registrazione della carta:", error);
+                showMessageBox("Errore", "Impossibile registrare la carta.", "error");
+            }
+            showLoader(false);
+        };
+
+        // Admin function: modal for balance modification
+        const renderBalanceModal = (cardId, currentBalance, ownerUsername) => {
+            if (!isAdmin) return;
+            const container = document.getElementById('app-container');
+            const existingModal = document.getElementById('balance-modal');
+            if (existingModal) existingModal.remove();
+
+            const modalHTML = `
+                <div id="balance-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="card max-w-md">
+                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">Modifica Saldo Carta</h3>
+                        <p class="text-sm text-gray-600 mb-2">Carta: <span class="font-mono font-bold text-indigo-700">${cardId.replace(/(\d{4})/g, '$1 ').trim()}</span></p>
+                        <p class="text-sm text-gray-600 mb-4">Proprietario: ${ownerUsername} | Saldo Attuale: <span class="font-bold">${formatCurrency(currentBalance)}</span></p>
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Importo da Aggiungere/Sottrarre</label>
+                        <input type="number" id="balance_amount" step="0.01" value="0.00" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+                        
+                        <div class="flex justify-end space-x-3">
+                            <button onclick="document.getElementById('balance-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
+                            <button onclick="window.handleAdminCardAction('${cardId}', 'subtract')" class="bg-red-500 hover:bg-red-600 text-white w-auto px-4 py-2 rounded-lg font-semibold">Sottrai</button>
+                            <button onclick="window.handleAdminCardAction('${cardId}', 'add')" class="bg-green-500 hover:bg-green-600 text-white w-auto px-4 py-2 rounded-lg font-semibold">Aggiungi</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterend', modalHTML);
+        };
+        
+        // Admin function: process card actions (add/subtract/delete)
+        const handleAdminCardAction = (cardId, action) => {
+            if (!isAdmin) return;
+            
+            if (action === 'delete') {
+                showMessageBox("Conferma Eliminazione", `Sei sicuro di voler RIMUOVERE definitivamente la carta ${cardId}?`, 'error', async () => {
+                    showLoader(true);
+                    try {
+                        await deleteDoc(doc(getCardsCollection(), cardId));
+                        showMessageBox("Successo", `Carta ${cardId} rimossa con successo.`, "success");
+                    } catch (error) {
+                        console.error("Errore nell'eliminazione della carta:", error);
+                        showMessageBox("Errore", "Impossibile rimuovere la carta.", "error");
+                    }
+                    showLoader(false);
+                });
+                return;
+            }
+            
+            // Se l'azione è 'add' o 'subtract', prendi l'importo dal modale
+            const amountInput = document.getElementById('balance_amount');
+            const amount = parseFloat(amountInput.value);
+            
+            if (isNaN(amount) || amount <= 0) {
+                 showMessageBox("Attenzione", "Inserisci un importo valido e positivo per la transazione.", "alert");
+                 return;
+            }
+            
+            const card = window.fakeCreditCards.find(c => c.id === cardId);
+            if (!card) {
+                showMessageBox("Errore", "Carta non trovata.", "error");
+                document.getElementById('balance-modal')?.remove();
+                return;
+            }
+            
+            let newBalance = card.balance;
+            let transactionType;
+
+            if (action === 'add') {
+                newBalance += amount;
+                transactionType = 'Aggiunta';
+            } else if (action === 'subtract') {
+                newBalance -= amount;
+                transactionType = 'Sottrazione';
+                if (newBalance < 0) {
+                    showMessageBox("Attenzione", `L'operazione renderebbe il saldo negativo (${formatCurrency(newBalance)}). Procedi?`, 'alert', () => {
+                        updateCardBalance(cardId, newBalance, transactionType, amount);
+                    });
+                    return;
+                }
+            }
+            
+            updateCardBalance(cardId, newBalance, transactionType, amount);
+        };
+        
+        const updateCardBalance = async (cardId, newBalance, transactionType, amount) => {
+            document.getElementById('balance-modal')?.remove(); // Chiude il modale
+            showLoader(true);
+            
+            try {
+                await updateDoc(doc(getCardsCollection(), cardId), {
+                    balance: newBalance,
+                    lastUpdate: new Date().toISOString()
+                });
+                showMessageBox("Successo", `${transactionType} di ${formatCurrency(amount)} eseguita. Nuovo saldo: ${formatCurrency(newBalance)}.`, "success");
+            } catch (error) {
+                console.error("Errore nell'aggiornamento del saldo:", error);
+                showMessageBox("Errore", "Impossibile aggiornare il saldo della carta.", "error");
+            }
+            showLoader(false);
+        }
+
+        // --- REAL-TIME DATA LISTENERS ---
+
+        const startListeningForData = () => {
+            if (isAdmin) {
+                // 1. All Users
+                const qUsers = getAdminUsersCollection();
+                onSnapshot(qUsers, (snapshot) => {
+                    let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
+                    window.allUsers = users;
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                         renderAdminDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Utenti:", error));
+
+                // 2. All Requests
+                const qRequests = query(getRequestsCollection(), orderBy("timestamp", "desc"));
+                onSnapshot(qRequests, (snapshot) => {
+                    window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                        renderAdminDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Richieste:", error));
+
+                // 3. All Cards (Admin)
+                const qCards = getCardsCollection();
+                onSnapshot(qCards, (snapshot) => {
+                    window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                        renderAdminDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Carte Admin:", error));
+
+                
+            } else {
+                // Regular user 
+                
+                // 1. User Profile
+                const userProfileRef = doc(getAdminUsersCollection(), currentUserData.username);
+                onSnapshot(userProfileRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        currentUserData = docSnap.data();
+                        if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                            renderUserDashboard();
+                        }
+                    } else {
+                        showMessageBox("Errore", "Il tuo profilo è stato eliminato. Disconnessione forzata.", "error");
+                        handleLogout();
+                    }
+                }, (error) => console.error("Errore nel listener Profilo Utente:", error));
+
+                // 2. User Requests (Recenti)
+                const qUserRequests = query(
+                    getRequestsCollection(),
+                    where("authUid", "==", currentUserId),
+                    orderBy("timestamp", "desc"),
+                    limit(10)
+                ); 
+
+                onSnapshot(qUserRequests, (snapshot) => {
+                    window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                        renderUserDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Richieste Utente:", error));
+                
+                // 3. User Cards
+                const qUserCards = query(
+                    getCardsCollection(),
+                    where("ownerUid", "==", currentUserId)
+                );
+                onSnapshot(qUserCards, (snapshot) => {
+                    window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                        renderUserDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Carte Utente:", error));
+            }
+            
+            // 4. Calendar Events (Publicly viewable by all)
+            const qEvents = query(getEventsCollection(), orderBy("date", "asc")); 
+            onSnapshot(qEvents, (snapshot) => {
+                window.calendarEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (document.getElementById('calendar-container')) {
+                    renderCalendarView(window.currentCalendarDate);
+                }
+            }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
+        };
+        
+        // ... (Existing Calendar and other functions like submitThumbtackRequest, handleRequestAction, etc.) ...
+        
+        const submitThumbtackRequest = async () => {
+            const countInput = document.getElementById('thumbtack_count');
+            const quantity = parseInt(countInput.value, 10);
+
+            if (isNaN(quantity) || quantity <= 0) {
+                showMessageBox("Attenzione", "Inserisci una quantità di puntine valida (maggiore di zero).", "alert");
                 return;
             }
 
-            const nextRankIndex = currentRankIndex + 1;
-            const nextRankName = RANKS[nextRankIndex];
-            
-            showMessageBox("Promuovi Utente", `Sei sicuro di voler promuovere ${username} al grado di ${nextRankName}?`, "alert", async () => {
-                showLoader(true);
-                try {
-                    const userRef = doc(getAdminUsersCollection(), username);
-                    await updateDoc(userRef, { rank: nextRankName });
-                    showMessageBox("Successo", `${username} è stato promosso a ${nextRankName}!`, "success");
-                } catch (error) {
-                    console.error("Errore nella promozione del grado:", error);
-                    showMessageBox("Errore", "Impossibile aggiornare il grado.", "error");
-                }
-                showLoader(false);
-            });
-        };
+            if (window.thumbtackRequests && window.thumbtackRequests.some(r => r.authUid === currentUserId && r.status === 'Pending')) {
+                showMessageBox("Attenzione", "Hai già una richiesta in sospeso. Attendi l'approvazione dell'Admin.", "alert");
+                return;
+            }
 
+            showLoader(true);
+            try {
+                await addDoc(getRequestsCollection(), {
+                    username: currentUserData.username,
+                    authUid: currentUserId,
+                    quantity: quantity,
+                    status: 'Pending',
+                    timestamp: new Date().toISOString()
+                });
+                countInput.value = '1';
+                showMessageBox("Richiesta Inviata", `Richiesta di ${quantity} puntine inviata con successo all'Admin!`, "success");
+            } catch (error) {
+                console.error("Errore nell'invio della richiesta:", error);
+                showMessageBox("Errore", "Impossibile inviare la richiesta.", "error");
+            }
+            showLoader(false);
+        };
+        
+        const processRequest = async (requestId, action, quantity, username) => {
+            const requestRef = doc(getRequestsCollection(), requestId);
+
+            await updateDoc(requestRef, { status: action === 'Accept' ? 'Confirmed' : 'Rejected' });
+
+            if (action === 'Accept') {
+                const userRef = doc(getAdminUsersCollection(), username);
+                
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                    const userData = userSnap.data();
+                    const newTotal = userData.totalThumbtacks + quantity;
+                    
+                    await updateDoc(userRef, {
+                        totalThumbtacks: newTotal
+                    });
+                }
+            }
+        };
+        
         const handleRequestAction = (requestId, action, quantity, authUid, username) => {
             const message = action === 'Accept' 
                 ? `Sei sicuro di voler ACCETTARE la richiesta di ${quantity} puntine per ${username}?`
@@ -669,54 +959,27 @@
                 showLoader(false);
             });
         };
-
-
-        const processRequest = async (requestId, action, quantity, username) => {
-            const requestRef = doc(getRequestsCollection(), requestId);
-
-            // 1. Update the request status
-            await updateDoc(requestRef, { status: action === 'Accept' ? 'Confirmed' : 'Rejected' });
-
-            if (action === 'Accept') {
-                // 2. Update the user's total thumbtacks
-                const userRef = doc(getAdminUsersCollection(), username);
-                
-                const userSnap = await getDoc(userRef);
-                if (userSnap.exists()) {
-                    const userData = userSnap.data();
-                    const newTotal = userData.totalThumbtacks + quantity;
-                    
-                    await updateDoc(userRef, {
-                        totalThumbtacks: newTotal
-                    });
-                }
-            }
-        };
-
-        // --- CALENDAR LOGIC AND UI ---
+        
+        // --- CALENDAR LOGIC AND UI (Omitted for brevity, assumed to be here) ---
+        // ... (existing Calendar functions) ...
 
         const generateCalendarHtml = (date) => {
             const year = date.getFullYear();
-            const month = date.getMonth(); // 0-indexed
+            const month = date.getMonth(); 
             const today = new Date();
             const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
 
-            // Days of the week (Italian)
             const daysOfWeek = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
-
-            // Get the first day of the month and last day of the month
             const firstDayOfMonth = new Date(year, month, 1);
             const lastDayOfMonth = new Date(year, month + 1, 0);
             const daysInMonth = lastDayOfMonth.getDate();
-            const startDayOfWeek = firstDayOfMonth.getDay(); // 0 (Sunday) to 6 (Saturday)
+            const startDayOfWeek = firstDayOfMonth.getDay(); 
 
-            // Filter events for the current month
             const monthString = year + '-' + String(month + 1).padStart(2, '0');
             const monthlyEvents = (window.calendarEvents || []).filter(event => 
                 event.date && event.date.startsWith(monthString)
             );
 
-            // Create a map of day number to events for quick lookup
             const eventsMap = monthlyEvents.reduce((acc, event) => {
                 const day = parseInt(event.date.substring(8, 10), 10);
                 if (!acc[day]) acc[day] = [];
@@ -727,12 +990,10 @@
             let calendarGrid = '';
             let day = 1;
 
-            // Fill initial empty days (padding for the first week)
             for (let i = 0; i < startDayOfWeek; i++) {
                 calendarGrid += `<div class="p-2 border border-gray-100 bg-gray-50/50 text-gray-400"></div>`;
             }
 
-            // Fill days of the month
             while (day <= daysInMonth) {
                 const dateString = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
                 const isToday = isCurrentMonth && day === today.getDate();
@@ -759,7 +1020,6 @@
                 day++;
             }
 
-            // Header HTML (Month/Year and navigation)
             const monthYearString = date.toLocaleDateString('it-IT', { year: 'numeric', month: 'long' });
             
             const headerHtml = `
@@ -770,7 +1030,6 @@
                 </div>
             `;
 
-            // Calendar structure
             const bodyHtml = `
                 <div class="grid grid-cols-7 text-center font-semibold text-gray-700 border-t border-b border-gray-300">
                     ${daysOfWeek.map(day => `<div class="p-2 text-sm">${day}</div>`).join('')}
@@ -798,7 +1057,7 @@
         }
         
         const renderCalendarView = (date = window.currentCalendarDate) => {
-            window.currentCalendarDate = date; // Update global state
+            window.currentCalendarDate = date; 
             
             const adminControls = isAdmin ? `
                 <div class="mb-6 p-4 border border-indigo-300 bg-indigo-50 rounded-xl flex justify-between items-center">
@@ -836,7 +1095,6 @@
             showView(html);
         };
         
-        // Admin function to open the event creation modal
         const renderEventModal = (date = null) => {
             if (!isAdmin) return;
             const container = document.getElementById('app-container');
@@ -881,13 +1139,13 @@
                 return;
             }
 
-            document.getElementById('event-modal').remove(); // Chiude il modale
+            document.getElementById('event-modal').remove(); 
             showLoader(true);
             
             try {
                 await addDoc(getEventsCollection(), {
                     title: title,
-                    date: date, // Formato YYYY-MM-DD per l'ordinamento
+                    date: date, 
                     description: description,
                     createdAt: new Date().toISOString(),
                     createdBy: currentUserData.username
@@ -900,81 +1158,6 @@
             showLoader(false);
         };
 
-        // --- REAL-TIME DATA LISTENERS ---
-
-        const startListeningForData = () => {
-            if (isAdmin) {
-                // 1. All Users (for ranking/stats)
-                const qUsers = getAdminUsersCollection();
-                onSnapshot(qUsers, (snapshot) => {
-                    let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
-                    
-                    window.allUsers = users;
-                    // Aggiorna la dashboard solo se l'admin è sulla dashboard (non è nella schermata di login)
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                         renderAdminDashboard();
-                    }
-                   
-                }, (error) => console.error("Errore nel listener Utenti:", error));
-
-                // 2. All Requests (per l'admin sono necessarie tutte per la gestione)
-                const qRequests = query(getRequestsCollection(), orderBy("timestamp", "desc"));
-                onSnapshot(qRequests, (snapshot) => {
-                    window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                    // Aggiorna la dashboard solo se l'admin è sulla dashboard
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                        renderAdminDashboard();
-                    }
-                }, (error) => console.error("Errore nel listener Richieste:", error));
-                
-                
-            } else {
-                // Regular user 
-                
-                // 1. User Profile
-                const userProfileRef = doc(getAdminUsersCollection(), currentUserData.username);
-                onSnapshot(userProfileRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        currentUserData = docSnap.data();
-                        // Aggiorna la dashboard solo se l'utente è loggato
-                        if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
-                            renderUserDashboard();
-                        }
-                    } else {
-                        showMessageBox("Errore", "Il tuo profilo è stato eliminato. Disconnessione forzata.", "error");
-                        handleLogout();
-                    }
-                }, (error) => console.error("Errore nel listener Profilo Utente:", error));
-
-                // 2. User Requests (Recenti)
-                const qUserRequests = query(
-                    getRequestsCollection(),
-                    where("authUid", "==", currentUserId),
-                    orderBy("timestamp", "desc"),
-                    limit(10) // Limita alle ultime 10 richieste
-                ); 
-
-                onSnapshot(qUserRequests, (snapshot) => {
-                    window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                    // Aggiorna la dashboard solo se l'utente è loggato
-                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
-                        renderUserDashboard();
-                    }
-                }, (error) => console.error("Errore nel listener Richieste Utente:", error));
-            }
-            
-            // 3. Calendar Events (Publicly viewable by all)
-            // L'ordinamento per data (stringa YYYY-MM-DD) assicura che gli eventi futuri appaiano per primi.
-            const qEvents = query(getEventsCollection(), orderBy("date", "asc")); 
-            onSnapshot(qEvents, (snapshot) => {
-                window.calendarEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Se la vista calendario è attualmente renderizzata, ridisegnala
-                if (document.getElementById('calendar-container')) {
-                    renderCalendarView(window.currentCalendarDate);
-                }
-            }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
-        };
 
         // --- MAIN APPLICATION FLOW ---
 
@@ -982,24 +1165,18 @@
             if (user) {
                 currentUserId = user.uid;
 
-                // Se currentUserData è già stato impostato (durante il login/registrazione)
                 if (currentUserData) {
-                    // Non fare nulla qui. La funzione handleSignIn ha già chiamato startListeningForData() 
-                    // o renderAdminPasswordChangePrompt() per cambiare la vista.
-                    
+                    // Logic already handled by handleSignIn
                 } else {
-                    // Sign-in anonimo completato (solo al primo caricamento), mostra la schermata di benvenuto
                     showLoader(false);
                     renderWelcomeScreen();
                 }
             } else {
-                // Nessun utente (non dovrebbe accadere dopo il sign-in anonimo)
                 showLoader(false);
                 renderWelcomeScreen();
             }
         });
 
-        // Start the process
         initializeAuth();
         
         // --- EXPOSE GLOBAL FUNCTIONS FOR HTML ONCLICK HANDLERS ---
@@ -1010,12 +1187,17 @@
         window.handleRequestAction = handleRequestAction;
         window.handleAdminPasswordChange = handleAdminPasswordChange;
         
-        // --- CALENDAR FUNCTIONS EXPOSED ---
+        // CALENDAR FUNCTIONS
         window.renderCalendarView = renderCalendarView;
         window.navigateCalendar = navigateCalendar;
         window.renderEventModal = renderEventModal;
         window.submitNewEvent = submitNewEvent;
         window.handleBackToDashboard = handleBackToDashboard;
+        
+        // CARD FUNCTIONS
+        window.registerNewCard = registerNewCard;
+        window.renderBalanceModal = renderBalanceModal;
+        window.handleAdminCardAction = handleAdminCardAction;
         
     </script>
 </body>
