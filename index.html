@@ -77,6 +77,14 @@
             background-color: #e0f2f1;
             color: #0d9488;
         }
+        .badge-banker {
+            background-color: #d1e5fa;
+            color: #0d6d94;
+        }
+        .badge-capo {
+            background-color: #ffe4e6;
+            color: #ef4444;
+        }
         .badge-pending {
             background-color: #fee2e2;
             color: #ef4444;
@@ -92,13 +100,6 @@
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             background-color: white;
-        }
-        .calendar-event {
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .calendar-event:hover {
-            background-color: #fde2e2; /* Colore hover per eventi */
         }
         /* Stile specifico per card di credito */
         .credit-card {
@@ -117,17 +118,13 @@
             display: block;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
         }
-        /* Stili per Tab Lavori */
-        .tab {
-            padding: 0.5rem 1rem;
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            font-weight: 600;
-            color: #6b7280;
-        }
-        .tab.active {
-            color: #4f46e5;
-            border-bottom-color: #4f46e5;
+        /* Stile specifico per i prodotti */
+        .product-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1rem;
+            background-color: white;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
         @media (min-width: 640px) {
             body {
@@ -158,23 +155,11 @@
             appId: "1:709491476433:web:cfcfc6d94bc2a5ef41c2f0"
         };
         
-        // Stato globale
+        // Stato globale per il calendario e le carte
         window.currentCalendarDate = new Date(); 
         window.calendarEvents = [];
         window.fakeCreditCards = []; 
-        window.epuntListings = []; 
-        window.jobApplications = []; // NUOVO: Per candidature
-        
-        // NUOVO: Definizione Lavori
-        window.AVAILABLE_JOBS = {
-            'nurse': 'Infermiere',
-            'banker': 'Banchiere',
-            'musician': 'Musicista',
-            'gamedev': 'Design Videogiochi'
-        };
-        
-        // NUOVO: Logica Pagamento Infermiere
-        window.NURSE_PAY_PER_THUMBTACK = 10; // 10 EUR finti per ogni puntina
+        window.products = []; // Nuovo stato globale per i prodotti
     </script>
 
     <script type="module">
@@ -197,6 +182,8 @@
         let currentUserId = null;
         let currentUserData = null;
         let isAdmin = false;
+        let isBanker = false; // Nuovo stato per il ruolo Banker
+        let isMobiliHead = false; // Nuovo stato per il Capo Azienda Mobili Puntina
 
         // Credenziali hardcoded per il primo login Admin
         const ADMIN_USERNAME = "florianopu19";
@@ -207,6 +194,7 @@
             'Socio anziano',
             'Vice presidente',
             'Presidente'
+            // NOTA: il grado Mobili Puntina non è un "rank" di puntine ma un "job/role"
         ];
 
         // --- HELPER FUNCTIONS ---
@@ -215,11 +203,8 @@
         const getAdminUsersCollection = () => collection(db, `artifacts/${appId}/public/data/all_users_view`); 
         const getEventsCollection = () => collection(db, `artifacts/${appId}/public/data/calendar_events`); 
         const getCardsCollection = () => collection(db, `artifacts/${appId}/public/data/fake_credit_cards`);
-        const getEpuntListingsCollection = () => collection(db, `artifacts/${appId}/public/data/epunt_listings`); 
-        
-        // NUOVI HELPERS PER LAVORI
-        const getJobApplicationsCollection = () => collection(db, `artifacts/${appId}/public/data/job_applications`);
-        const getUserInfractionsCollection = (username) => collection(db, `artifacts/${appId}/public/data/all_users_view/${username}/infractions`);
+        // NUOVA COLLEZIONE PER I PRODOTTI (MERCATO "epunt")
+        const getProductsCollection = () => collection(db, `artifacts/${appId}/public/data/products`);
 
 
         const showView = (html) => {
@@ -258,7 +243,7 @@
                             <div class="h-2 w-2 ${color} rounded-full mr-3"></div>
                             <h3 class="text-lg font-bold text-gray-900">${title}</h3>
                         </div>
-                        <div class="py-4 text-gray-700">${message}</div>
+                        <p class="py-4 text-gray-700">${message}</p>
                         <div class="flex justify-end space-x-3">
                             ${isConfirmation ? 
                                 `<button id="modal-cancel" class="btn-secondary px-4 py-2">Annulla</button>
@@ -350,9 +335,9 @@
                         authUid: currentUserId,
                         role: initialRole,
                         rank: initialRank,
+                        isBanker: false, // Nuovo campo Banker
+                        isMobiliHead: false, // Nuovo campo Capo Azienda
                         totalThumbtacks: 0,
-                        job: null, // NUOVO CAMPO: Lavoro
-                        quitCount: 0, // NUOVO CAMPO: Contatore dimissioni
                         lastUpdate: new Date().toISOString()
                     };
 
@@ -362,6 +347,8 @@
                 // --- GESTIONE FLUSSO DOPO LOGIN/REGISTRAZIONE ---
                 currentUserData = userData;
                 isAdmin = currentUserData.role === 'admin';
+                isBanker = !!currentUserData.isBanker;
+                isMobiliHead = !!currentUserData.isMobiliHead;
                 
                 if (isAdmin && currentUserData.password === ADMIN_PASSWORD) {
                     renderAdminPasswordChangePrompt();
@@ -373,6 +360,8 @@
 
                 if (isAdmin) {
                     renderAdminDashboard();
+                } else if (isMobiliHead) { // NUOVO: Priorità al Capo Azienda
+                    renderMobiliPuntinaHeadDashboard();
                 } else {
                     renderUserDashboard();
                 }
@@ -517,32 +506,29 @@
                  cardListHTML = `<p class="text-center text-gray-500 py-4">Nessuna carta registrata. Registrane una qui sotto!</p>`;
             }
             
-            // NUOVO: Info Lavoro
-            let jobInfoHtml = '';
-            if (currentUserData.job) {
-                const jobName = window.AVAILABLE_JOBS[currentUserData.job] || currentUserData.job;
-                jobInfoHtml = `<p class="text-indigo-700 text-sm mt-1">Lavoro: <span class="font-bold">${jobName}</span></p>`;
-            } else {
-                jobInfoHtml = `<p class="text-indigo-700 text-sm mt-1">Lavoro: <span class="font-bold">Disoccupato</span></p>`;
-            }
+            // RUOLI AGGIUNTIVI VISIBILI ALL'UTENTE
+            const userRolesBadges = [];
+            if (isMobiliHead) userRolesBadges.push('<span class="badge badge-capo ml-2">CAPO AZIENDA MOBILI</span>');
+            if (isBanker) userRolesBadges.push('<span class="badge badge-banker ml-2">BANCARIO</span>');
 
 
             const html = `
                 <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username}</h2>
+                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username} ${userRolesBadges.join('')}</h2>
                     <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
                 </div>
 
                 <div class="bg-indigo-50 p-4 rounded-lg mb-6 shadow-inner">
                     <p class="text-indigo-700 text-sm">Il tuo Grado: <span class="font-bold">${currentUserData.rank}</span></p>
                     <p class="text-indigo-700 text-sm mt-1">Puntine Totali: <span class="font-bold text-xl">${currentUserData.totalThumbtacks}</span></p>
-                    ${jobInfoHtml} ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
+                    ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    <button onclick="window.renderCalendarView()" class="btn-primary">Calendario Eventi</button>
-                    <button onclick="window.renderEpuntMarketplace()" class="btn-primary bg-green-600 hover:bg-green-700">🛒 Mercatino ePunt</button>
-                    <button onclick="window.renderJobsView()" class="btn-primary bg-yellow-500 hover:bg-yellow-600">💼 Gestione Lavori</button>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <button onclick="window.renderMarketplaceView()" class="btn-primary bg-red-500 hover:bg-red-600">
+                        Vai su epunt (Marketplace)
+                    </button>
+                    <button onclick="window.renderCalendarView()" class="btn-primary">Visualizza Calendario Eventi</button>
                 </div>
                 
                 
@@ -595,32 +581,42 @@
             const allUsers = window.allUsers || [];
             const thumbtackRequests = (window.thumbtackRequests || []).filter(r => r.status === 'Pending');
             const allCards = window.fakeCreditCards || [];
-            
-            // NUOVO: Conteggio candidature pendenti
-            const pendingApplicationsCount = (window.jobApplications || []).filter(app => app.status === 'pending').length;
 
              const usersHtml = allUsers.map((user, index) => {
                 const currentRankIndex = RANKS.indexOf(user.rank);
                 const nextRankIndex = currentRankIndex < RANKS.length - 1 ? currentRankIndex + 1 : currentRankIndex;
                 const nextRankName = RANKS[nextRankIndex];
                 
-                // NUOVO: Info Lavoro Admin
-                const jobName = user.job ? (window.AVAILABLE_JOBS[user.job] || user.job) : 'N/A';
+                const badges = [];
+                if (user.username === ADMIN_USERNAME) badges.push('<span class="badge badge-admin ml-2">ADMIN</span>');
+                if (user.isMobiliHead) badges.push('<span class="badge badge-capo ml-2">CAPO AZIENDA</span>');
+                if (user.isBanker) badges.push('<span class="badge badge-banker ml-2">BANCARIO</span>');
 
                 return `
-                    <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
-                        <div class="flex-1 min-w-0 mr-4">
-                            <p class="font-semibold text-gray-900">${user.username} ${user.username === ADMIN_USERNAME ? '<span class="badge badge-admin ml-2">ADMIN</span>' : ''}</p>
-                            <p class="text-sm text-gray-500">Puntine: ${user.totalThumbtacks} | Grado: ${user.rank} | Lavoro: ${jobName}</p>
+                    <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'} flex-wrap sm:flex-nowrap">
+                        <div class="flex-1 min-w-0 mr-4 py-1">
+                            <p class="font-semibold text-gray-900">${user.username} ${badges.join('')}</p>
+                            <p class="text-sm text-gray-500">Puntine: ${user.totalThumbtacks} - Grado: ${user.rank}</p>
                         </div>
                         
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items-center space-x-2 flex-wrap justify-end py-1">
                         ${user.username !== ADMIN_USERNAME ? `
-                            <button onclick="window.handleRankChange('${user.username}')" 
+                            <button onclick="window.handleRankChange('${user.username}', 'Promote')" 
                                     class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-opacity ${RANKS.indexOf(user.rank) < RANKS.length - 1 ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-green-500 opacity-70 cursor-default'}" 
                                     ${currentRankIndex === RANKS.length - 1 ? 'disabled' : ''}>
                                 ${currentRankIndex < RANKS.length - 1 ? `Promuovi a ${nextRankName}` : 'Grado Massimo'}
                             </button>
+                            
+                            <button onclick="window.handleJobAssignment('${user.username}', 'isMobiliHead', ${!user.isMobiliHead})" 
+                                    class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-colors ${user.isMobiliHead ? 'bg-red-500 hover:bg-red-600' : 'bg-pink-500 hover:bg-pink-600'}">
+                                ${user.isMobiliHead ? 'Revoca Capo Az.' : 'Nomina Capo Az.'}
+                            </button>
+                            
+                            <button onclick="window.handleJobAssignment('${user.username}', 'isBanker', ${!user.isBanker})" 
+                                    class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-colors ${user.isBanker ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}">
+                                ${user.isBanker ? 'Revoca Banker' : 'Nomina Banker'}
+                            </button>
+                            
                             ` : ''}
                         </div>
                     </div>
@@ -665,12 +661,8 @@
             const html = `
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Dashboard Admin</h2>
-                    <div class="flex space-x-3 flex-wrap">
-                        <button onclick="window.renderJobsView()" class="text-sm font-semibold text-yellow-600 hover:text-yellow-800 relative">
-                            Gestione Lavori
-                            ${pendingApplicationsCount > 0 ? `<span class="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">${pendingApplicationsCount}</span>` : ''}
-                        </button>
-                        <button onclick="window.renderEpuntMarketplace()" class="text-sm font-semibold text-green-600 hover:text-green-800">Mercatino ePunt</button>
+                    <div class="flex space-x-3">
+                         <button onclick="window.renderMarketplaceView()" class="text-sm font-semibold text-red-500 hover:text-red-700">epunt</button>
                         <button onclick="window.renderCalendarView()" class="text-sm font-semibold text-indigo-500 hover:text-indigo-700">Calendario</button>
                         <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
                     </div>
@@ -695,7 +687,7 @@
                     ${adminCardsHtml}
                 </div>
                 
-                <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Statistiche)</h3>
+                <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Ruoli)</h3>
                 <div class="border rounded-lg overflow-hidden">
                     ${usersHtml}
                 </div>
@@ -703,6 +695,110 @@
             showView(html);
         };
         
+        // --- DASHBOARD CAPO AZIENDA MOBILI PUNTINA ---
+        
+        const renderMobiliPuntinaHeadDashboard = () => {
+            const products = window.products || [];
+            
+            const productListHtml = products.length > 0 ? products.map((product, index) => `
+                <div class="list-item ${index % 2 === 0 ? 'bg-pink-50' : 'bg-white'} flex-wrap sm:flex-nowrap">
+                    <div class="flex-1 min-w-0 mr-4 py-1">
+                        <p class="font-bold text-gray-900 text-lg">${product.name}</p>
+                        <p class="text-sm text-gray-500">${product.description}</p>
+                    </div>
+                    <div class="min-w-0 mr-4 py-1">
+                        <p class="text-lg font-bold text-red-600 whitespace-nowrap">Prezzo: ${formatCurrency(product.price)}</p>
+                    </div>
+                    <div class="flex space-x-2 mt-2 sm:mt-0">
+                        <button onclick="window.renderProductModal('${product.id}', '${product.name}', '${product.description}', ${product.price})" 
+                                class="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Modifica</button>
+                        <button onclick="window.deleteProduct('${product.id}', '${product.name}')" 
+                                class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Rimuovi</button>
+                    </div>
+                </div>
+            `).join('') : '<p class="text-center text-gray-500 py-4">Nessun mobile in vendita al momento. Aggiungine uno!</p>';
+
+
+            const html = `
+                <div class="flex justify-between items-center mb-6 border-b pb-3 border-red-300">
+                    <h2 class="text-2xl font-bold text-red-800">Dashboard Capo Azienda Mobili Puntina</h2>
+                    <div class="flex space-x-3">
+                        <button onclick="window.renderMarketplaceView()" class="text-sm font-semibold text-red-500 hover:text-red-700">epunt Pubblico</button>
+                        <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
+                    </div>
+                </div>
+                
+                <div class="bg-pink-100 p-4 rounded-lg mb-6 shadow-inner">
+                    <p class="text-pink-700 font-bold">Benvenuto, ${currentUserData.username}! Qui gestisci i mobili in vendita su epunt.</p>
+                </div>
+
+                <div class="mb-8">
+                    <button onclick="window.renderProductModal()" class="btn-primary bg-pink-600 hover:bg-pink-700 flex items-center justify-center w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                        </svg>
+                        Aggiungi Nuovo Mobile
+                    </button>
+                </div>
+                
+                <h3 class="text-xl font-bold text-gray-700 mb-3 border-b pb-2">Catalogo Mobili in Vendita</h3>
+                <div class="border rounded-lg overflow-hidden">
+                    ${productListHtml}
+                </div>
+                
+                <div class="mt-6">
+                    <button onclick="window.handleBackToDashboard()" class="text-sm text-gray-500 hover:text-gray-700">Torna alla Dashboard Utente</button>
+                </div>
+            `;
+            showView(html);
+        }
+        
+        // --- MARKETPLACE "epunt" VIEW ---
+        
+        const renderMarketplaceView = () => {
+             const products = window.products || [];
+             
+             const isHead = isMobiliHead;
+             
+             const productCardsHtml = products.length > 0 ? products.map(product => `
+                <div class="product-card">
+                    <h4 class="text-xl font-bold text-gray-900 mb-2">${product.name}</h4>
+                    <p class="text-sm text-gray-600 mb-3">${product.description || 'Nessuna descrizione.'}</p>
+                    <div class="flex justify-between items-center mb-4">
+                        <p class="text-2xl font-bold text-red-600">${formatCurrency(product.price)}</p>
+                        <p class="text-xs text-gray-500">Venditore: ${product.sellerUsername}</p>
+                    </div>
+                    <button onclick="window.handleProductPurchase('${product.id}', '${product.name}')" 
+                            class="btn-primary bg-green-500 hover:bg-green-600 py-2 px-4 w-full text-sm">
+                        Acquista Ora
+                    </button>
+                </div>
+             `).join('') : '<p class="text-center text-gray-500 py-8">Nessun prodotto (mobile) in vendita su epunt al momento.</p>';
+
+
+             const html = `
+                 <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-bold text-red-600">epunt: Marketplace Mobili</h2>
+                    <button onclick="window.handleBackToDashboard()" class="text-sm text-indigo-500 hover:text-indigo-700">
+                        Torna alla Dashboard
+                    </button>
+                </div>
+                
+                ${isHead ? 
+                    `<div class="mb-6 p-4 bg-pink-50 border border-pink-300 rounded-lg">
+                        <p class="text-pink-700 font-semibold text-center">Sei il Capo Azienda Mobili! <a href="#" onclick="window.renderMobiliPuntinaHeadDashboard()" class="text-pink-800 underline">Gestisci i prodotti qui.</a></p>
+                    </div>` : ''}
+
+                <p class="text-gray-600 mb-6">Visualizza i prodotti in vendita. Dopo l'acquisto, il prodotto ti sarà consegnato a scuola.</p>
+                
+                <div id="product-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${productCardsHtml}
+                </div>
+             `;
+             showView(html);
+        }
+
+
         // --- CARD MANAGEMENT LOGIC ---
 
         const isValidCardNumber = (cardNumber) => {
@@ -750,7 +846,7 @@
 
         // Admin function: modal for balance modification
         const renderBalanceModal = (cardId, currentBalance, ownerUsername) => {
-            if (!isAdmin) return;
+            if (!isAdmin && !isBanker) return;
             const container = document.getElementById('app-container');
             const existingModal = document.getElementById('balance-modal');
             if (existingModal) existingModal.remove();
@@ -778,7 +874,7 @@
         
         // Admin function: process card actions (add/subtract/delete)
         const handleAdminCardAction = (cardId, action) => {
-            if (!isAdmin) return;
+            if (!isAdmin && !isBanker) return;
             
             if (action === 'delete') {
                 showMessageBox("Conferma Eliminazione", `Sei sicuro di voler RIMUOVERE definitivamente la carta ${cardId}?`, 'error', async () => {
@@ -805,20 +901,11 @@
                  return;
             }
             
-            // MODIFICA: Cerca la carta nello stato globale (se admin) o locale (se utente)
-            const allCards = isAdmin ? window.allCards : window.fakeCreditCards;
-            const card = allCards.find(c => c.id === cardId);
-            
+            const card = window.fakeCreditCards.find(c => c.id === cardId);
             if (!card) {
-                // Se admin, prova a cercare nello stato globale completo
-                 const globalCard = (window.allCards || []).find(c => c.id === cardId);
-                 if(globalCard) {
-                    card = globalCard;
-                 } else {
-                    showMessageBox("Errore", "Carta non trovata.", "error");
-                    document.getElementById('balance-modal')?.remove();
-                    return;
-                 }
+                showMessageBox("Errore", "Carta non trovata.", "error");
+                document.getElementById('balance-modal')?.remove();
+                return;
             }
             
             let newBalance = card.balance;
@@ -861,22 +948,33 @@
         // --- REAL-TIME DATA LISTENERS ---
 
         const startListeningForData = () => {
-            if (isAdmin) {
-                // 1. All Users
-                const qUsers = getAdminUsersCollection();
-                onSnapshot(qUsers, (snapshot) => {
-                    let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
-                    window.allUsers = users;
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                         renderAdminDashboard();
+            // 1. All Users (Used by Admin and for User Profile updates)
+            const qUsers = getAdminUsersCollection();
+            onSnapshot(qUsers, (snapshot) => {
+                let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
+                window.allUsers = users;
+                
+                if (!isAdmin && currentUserData) {
+                    // Update current user data if logged in as non-admin
+                    const updatedUser = users.find(u => u.username === currentUserData.username);
+                    if (updatedUser) {
+                        currentUserData = updatedUser;
+                        isBanker = !!currentUserData.isBanker;
+                        isMobiliHead = !!currentUserData.isMobiliHead;
                     }
-                    if (document.getElementById('content').innerHTML.includes('Gestione Dipendenti')) {
-                         renderJobsView(); // Aggiorna la vista lavori se aperta
-                    }
-                }, (error) => console.error("Errore nel listener Utenti:", error));
+                }
+                
+                if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                     renderAdminDashboard();
+                } else if (isMobiliHead && document.getElementById('content').innerHTML.includes('Capo Azienda Mobili Puntina')) {
+                     renderMobiliPuntinaHeadDashboard();
+                }
 
-                // 2. All Requests
+            }, (error) => console.error("Errore nel listener Utenti:", error));
+
+            // 2. All Requests (Admin/User specific)
+            if (isAdmin) {
                 const qRequests = query(getRequestsCollection(), orderBy("timestamp", "desc"));
                 onSnapshot(qRequests, (snapshot) => {
                     window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
@@ -884,51 +982,8 @@
                         renderAdminDashboard();
                     }
                 }, (error) => console.error("Errore nel listener Richieste:", error));
-
-                // 3. All Cards (Admin)
-                const qCards = getCardsCollection();
-                onSnapshot(qCards, (snapshot) => {
-                    window.allCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })); // SALVA IN allCards
-                    window.fakeCreditCards = window.allCards; // Per retrocompatibilità
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                        renderAdminDashboard();
-                    }
-                }, (error) => console.error("Errore nel listener Carte Admin:", error));
-                
-                // 4. Job Applications (Admin)
-                const qJobs = query(getJobApplicationsCollection(), where("status", "==", "pending"));
-                onSnapshot(qJobs, (snapshot) => {
-                    window.jobApplications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                        renderAdminDashboard(); // Per aggiornare il badge
-                    }
-                    if (document.getElementById('content').innerHTML.includes('Candidature Pendenti')) {
-                        renderJobsView(); // Per aggiornare la lista
-                    }
-                }, (error) => console.error("Errore nel listener Candidature:", error));
-
-                
             } else {
-                // Regular user 
-                
-                // 1. User Profile
-                const userProfileRef = doc(getAdminUsersCollection(), currentUserData.username);
-                onSnapshot(userProfileRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        currentUserData = docSnap.data();
-                        if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
-                            renderUserDashboard();
-                        }
-                        if (document.getElementById('content').innerHTML.includes('Il Tuo Lavoro Attuale')) {
-                            renderJobsView(); // Aggiorna la vista lavori se aperta
-                        }
-                    } else {
-                        showMessageBox("Errore", "Il tuo profilo è stato eliminato. Disconnessione forzata.", "error");
-                        handleLogout();
-                    }
-                }, (error) => console.error("Errore nel listener Profilo Utente:", error));
-
-                // 2. User Requests (Recenti)
+                // User Requests (Recenti)
                 const qUserRequests = query(
                     getRequestsCollection(),
                     where("authUid", "==", currentUserId),
@@ -942,19 +997,17 @@
                         renderUserDashboard();
                     }
                 }, (error) => console.error("Errore nel listener Richieste Utente:", error));
-                
-                // 3. User Cards
-                const qUserCards = query(
-                    getCardsCollection(),
-                    where("ownerUid", "==", currentUserId)
-                );
-                onSnapshot(qUserCards, (snapshot) => {
-                    window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
-                        renderUserDashboard();
-                    }
-                }, (error) => console.error("Errore nel listener Carte Utente:", error));
             }
+
+            // 3. All Cards (Admin/User specific)
+            const cardQuery = (isAdmin || isBanker) ? getCardsCollection() : query(getCardsCollection(), where("ownerUid", "==", currentUserId));
+            onSnapshot(cardQuery, (snapshot) => {
+                window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                 if (document.getElementById('content').innerHTML.includes('Puntine Totali') || document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                    if (isAdmin || isBanker) renderAdminDashboard();
+                    else renderUserDashboard();
+                }
+            }, (error) => console.error("Errore nel listener Carte:", error));
             
             // 4. Calendar Events (Publicly viewable by all)
             const qEvents = query(getEventsCollection(), orderBy("date", "asc")); 
@@ -965,18 +1018,41 @@
                 }
             }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
             
-            // 5. ePunt Listings (Publicly viewable by all)
-            const qListings = query(getEpuntListingsCollection(), where("status", "==", "active"), orderBy("createdAt", "desc"));
-            onSnapshot(qListings, (snapshot) => {
-                window.epuntListings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Aggiorna la vista solo se l'utente si trova nel mercatino
-                if (document.getElementById('epunt-container')) {
-                    renderEpuntMarketplace();
+            // 5. Products (Publicly viewable by all)
+            const qProducts = getProductsCollection();
+            onSnapshot(qProducts, (snapshot) => {
+                window.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 if (document.getElementById('product-list')) {
+                    renderMarketplaceView();
+                } else if (isMobiliHead && document.getElementById('content').innerHTML.includes('Dashboard Capo Azienda')) {
+                    renderMobiliPuntinaHeadDashboard();
                 }
-            }, (error) => console.error("Errore nel listener ePunt Listings:", error));
+            }, (error) => console.error("Errore nel listener Prodotti:", error));
         };
         
         // --- REQUESTS AND RANKS LOGIC ---
+        
+        // NUOVA FUNZIONE: Assegnazione Ruoli (Banker/Capo Azienda)
+        const handleJobAssignment = (username, jobKey, assignment) => {
+             if (!isAdmin) return;
+
+             const jobName = jobKey === 'isBanker' ? 'Bancario' : 'Capo Azienda Mobili Puntina';
+             const action = assignment ? 'Nominare' : 'Revocare';
+             const message = `Sei sicuro di voler ${action} l'utente ${username} come ${jobName}?`;
+
+             showMessageBox("Conferma Ruolo", message, 'alert', async () => {
+                showLoader(true);
+                try {
+                    const userRef = doc(getAdminUsersCollection(), username);
+                    await updateDoc(userRef, { [jobKey]: assignment });
+                    showMessageBox("Successo", `${username} è stato ${assignment ? 'nominato' : 'revocato'} come ${jobName}.`, "success");
+                } catch (error) {
+                    console.error(`Errore nell'assegnazione del ruolo ${jobName}:`, error);
+                    showMessageBox("Errore", "Impossibile aggiornare il ruolo.", "error");
+                }
+                showLoader(false);
+             });
+        }
 
         const submitThumbtackRequest = async () => {
             const countInput = document.getElementById('thumbtack_count');
@@ -1012,43 +1088,20 @@
         
         const processRequest = async (requestId, action, quantity, username) => {
             const requestRef = doc(getRequestsCollection(), requestId);
-            
-            // 1. Aggiorna lo stato della richiesta
+
             await updateDoc(requestRef, { status: action === 'Accept' ? 'Confirmed' : 'Rejected' });
 
             if (action === 'Accept') {
                 const userRef = doc(getAdminUsersCollection(), username);
-                const userSnap = await getDoc(userRef);
                 
+                const userSnap = await getDoc(userRef);
                 if (userSnap.exists()) {
                     const userData = userSnap.data();
-                    
-                    // 2. Aumenta le puntine totali
                     const newTotal = userData.totalThumbtacks + quantity;
-                    await updateDoc(userRef, { totalThumbtacks: newTotal });
                     
-                    // 3. NUOVO: Logica Pagamento Infermiere
-                    if (userData.job === 'nurse') {
-                        const paymentAmount = quantity * (window.NURSE_PAY_PER_THUMBTACK || 10);
-                        
-                        // Trova la carta dell'infermiere
-                        const qUserCards = query(getCardsCollection(), where("ownerUid", "==", userData.authUid), limit(1));
-                        const cardsSnap = await getDoc(qUserCards.docs[0]?.ref); // Usa getDoc sulla ref
-
-                        if (cardsSnap.exists()) {
-                            const cardData = cardsSnap.data();
-                            const cardRef = cardsSnap.ref;
-                            const newBalance = (cardData.balance || 0) + paymentAmount;
-                            
-                            await updateDoc(cardRef, { balance: newBalance });
-                            
-                            // Invia un messaggio all'Admin che il pagamento è avvenuto
-                            showMessageBox("Pagamento Automatico", `Pagamento di ${formatCurrency(paymentAmount)} inviato a ${username} (Infermiere) per ${quantity} puntine.`, "success");
-                        } else {
-                            // Messaggio all'Admin se l'infermiere non ha carte
-                            showMessageBox("Pagamento Fallito", `${username} è un Infermiere ma non ha una carta registrata. Nessun pagamento inviato.`, "alert");
-                        }
-                    }
+                    await updateDoc(userRef, {
+                        totalThumbtacks: newTotal
+                    });
                 }
             }
         };
@@ -1061,16 +1114,11 @@
             showMessageBox(action === 'Accept' ? "Accetta Richiesta" : "Rifiuta Richiesta", message, 'alert', async () => {
                 showLoader(true);
                 try {
-                    // La funzione 'processRequest' ora gestisce anche il pagamento
                     await processRequest(requestId, action, quantity, username);
-                    
-                    // Messaggio di successo generico (il pagamento infermiere ha il suo popup)
-                    if (action !== 'Accept' || (window.allUsers.find(u => u.username === username)?.job !== 'nurse')) {
-                         showMessageBox("Successo", `Richiesta di ${username} ${action === 'Accept' ? 'accettata' : 'rifiutata'} con successo.`, "success");
-                    }
+                    showMessageBox("Successo", `Richiesta di ${username} ${action === 'Accept' ? 'accettata' : 'rifiutata'} con successo.`, "success");
                 } catch (error) {
                     console.error(`Errore durante l'azione ${action}:`, error);
-                    showMessageBox("Errore", "Impossibile processare la richiesta. " + error.message, "error");
+                    showMessageBox("Errore", "Impossibile processare la richiesta.", "error");
                 }
                 showLoader(false);
             });
@@ -1104,6 +1152,106 @@
                 showLoader(false);
             });
         };
+        
+        // --- PRODOTTI / MARKETPLACE LOGIC ---
+        
+        const renderProductModal = (id = null, name = '', description = '', price = 0) => {
+            if (!isMobiliHead) return;
+            const container = document.getElementById('app-container');
+            const existingModal = document.getElementById('product-modal');
+            if (existingModal) existingModal.remove();
+            
+            const isEdit = id !== null;
+
+            const modalHTML = `
+                <div id="product-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="card max-w-md">
+                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">${isEdit ? 'Modifica Mobile' : 'Aggiungi Nuovo Mobile'}</h3>
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Mobile</label>
+                        <input type="text" id="product_name" placeholder="Nome del prodotto" value="${name}" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Prezzo (€)</label>
+                        <input type="number" id="product_price" step="0.01" min="0.01" value="${price.toFixed(2)}" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
+                        <textarea id="product_description" placeholder="Dettagli del prodotto..." class="w-full p-3 mb-6 border border-gray-300 rounded-lg">${description}</textarea>
+                        
+                        <div class="flex justify-end space-x-3">
+                            <button onclick="document.getElementById('product-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
+                            <button onclick="window.submitNewProduct('${id}')" class="btn-primary w-auto px-4 py-2">${isEdit ? 'Salva Modifiche' : 'Aggiungi Prodotto'}</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterend', modalHTML);
+        }
+        
+        const submitNewProduct = async (id) => {
+            if (!isMobiliHead) return;
+            const name = document.getElementById('product_name').value.trim();
+            const price = parseFloat(document.getElementById('product_price').value);
+            const description = document.getElementById('product_description').value.trim();
+
+            if (!name || isNaN(price) || price <= 0) {
+                showMessageBox("Attenzione", "Inserisci un nome valido e un prezzo maggiore di zero.", "alert");
+                return;
+            }
+
+            document.getElementById('product-modal').remove(); 
+            showLoader(true);
+            
+            const productData = {
+                name: name,
+                price: price, 
+                description: description,
+                sellerUid: currentUserId,
+                sellerUsername: currentUserData.username,
+                lastUpdate: new Date().toISOString()
+            };
+            
+            try {
+                if (id) {
+                    // Modifica
+                    await updateDoc(doc(getProductsCollection(), id), productData);
+                    showMessageBox("Successo", `Il mobile '${name}' è stato aggiornato.`, "success");
+                } else {
+                    // Aggiungi
+                    await addDoc(getProductsCollection(), productData);
+                    showMessageBox("Successo", `Il mobile '${name}' è stato messo in vendita su epunt!`, "success");
+                }
+            } catch (error) {
+                console.error("Errore nell'operazione prodotto:", error);
+                showMessageBox("Errore", "Impossibile salvare il mobile.", "error");
+            }
+            showLoader(false);
+        }
+        
+        const deleteProduct = (id, name) => {
+            if (!isMobiliHead) return;
+            
+            showMessageBox("Conferma Eliminazione", `Sei sicuro di voler RIMUOVERE il mobile '${name}' dalla vendita?`, 'error', async () => {
+                showLoader(true);
+                try {
+                    await deleteDoc(doc(getProductsCollection(), id));
+                    showMessageBox("Successo", `Mobile '${name}' rimosso con successo.`, "success");
+                } catch (error) {
+                    console.error("Errore nell'eliminazione del mobile:", error);
+                    showMessageBox("Errore", "Impossibile rimuovere il mobile.", "error");
+                }
+                showLoader(false);
+            });
+        }
+        
+        const handleProductPurchase = (productId, productName) => {
+             // Simula l'acquisto, dato che l'utente ha detto che la consegna è a scuola e non ha chiesto una logica di transazione complessa.
+            showMessageBox("Conferma Acquisto", `Sei sicuro di voler acquistare il mobile '${productName}'? L'accordo sarà finalizzato e il prodotto consegnato a scuola.`, 'info', () => {
+                 // Qui si potrebbe aggiungere una transazione di puntine o un log, ma per ora basta un messaggio di successo.
+                 showMessageBox("Acquisto Confermato", `Complimenti, hai "acquistato" '${productName}'. Un Capo Azienda Mobili Puntina ti contatterà per la consegna a scuola!`, "success");
+                 console.log(`Acquisto simulato: ${currentUserData.username} ha comprato ${productName} (ID: ${productId})`);
+            });
+        }
+
 
         // --- CALENDAR LOGIC AND UI ---
         
@@ -1147,11 +1295,9 @@
 
                 let eventHtml = '';
                 if (dayEvents.length > 0) {
-                    // MODIFICA: Aggiunto onclick
                     eventHtml = dayEvents.map(event => `
-                        <div class="mt-1 text-xs truncate bg-red-500 text-white rounded px-1.5 py-0.5 calendar-event" 
-                             title="${event.title}"
-                             onclick="window.showEventDetails('${event.id}')">
+                        <div class="mt-1 text-xs truncate bg-red-500 text-white rounded px-1.5 py-0.5" 
+                             title="${event.title}: ${event.description}">
                             ${event.title}
                         </div>
                     `).join('');
@@ -1187,21 +1333,6 @@
 
             return headerHtml + bodyHtml;
         };
-        
-        // NUOVA FUNZIONE: Mostra dettagli evento
-        const showEventDetails = (eventId) => {
-            const event = window.calendarEvents.find(e => e.id === eventId);
-            if (!event) {
-                showMessageBox("Errore", "Evento non trovato.", "error");
-                return;
-            }
-            
-            const message = `
-                <p class="text-sm text-gray-500 mb-2">Data: ${new Date(event.date + 'T00:00:00').toLocaleDateString()}</p>
-                <p class="text-gray-700">${event.description || 'Nessuna descrizione.'}</p>
-            `;
-            showMessageBox(event.title, message, 'info');
-        };
 
         const navigateCalendar = (offset) => {
             const newDate = new Date(window.currentCalendarDate);
@@ -1210,8 +1341,10 @@
         };
         
         const handleBackToDashboard = () => {
-            if (isAdmin) {
+             if (isAdmin) {
                 renderAdminDashboard();
+            } else if (isMobiliHead) {
+                renderMobiliPuntinaHeadDashboard();
             } else {
                 renderUserDashboard();
             }
@@ -1318,651 +1451,6 @@
             }
             showLoader(false);
         };
-        
-        // --- EPUNT MARKETPLACE LOGIC AND UI ---
-
-        const renderEpuntMarketplace = () => {
-            const listings = window.epuntListings || [];
-            // Filtra solo gli annunci attivi (anche se il listener dovrebbe già farlo)
-            const activeListings = listings.filter(l => l.status === 'active');
-            const userListings = activeListings.filter(l => l.sellerUid === currentUserId);
-            const otherListings = activeListings.filter(l => l.sellerUid !== currentUserId);
-            const userHasCard = window.fakeCreditCards && window.fakeCreditCards.length > 0;
-
-            const backButton = `
-                <div class="mb-4">
-                    <button onclick="window.handleBackToDashboard()" class="text-sm text-indigo-500 hover:text-indigo-700 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Torna alla Dashboard
-                    </button>
-                </div>
-            `;
-            
-            let sellButtonHtml = `
-                <button onclick="window.renderCreateListingForm()" class="btn-primary bg-green-600 hover:bg-green-700 flex items-center w-auto px-4 py-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v2h2a1 1 0 110 2h-2v2a1 1 0 11-2 0V8H7a1 1 0 110-2h2V4a1 1 0 011-1z" clip-rule="evenodd" />
-                    </svg>
-                    Vendi un Oggetto
-                </button>
-            `;
-            
-            if (!userHasCard) {
-                sellButtonHtml = `
-                    <div class="p-3 bg-yellow-100 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
-                        Per vendere o acquistare oggetti, devi prima <button onclick="window.handleBackToDashboard()" class="font-bold underline">registrare una carta</button> nella tua dashboard.
-                    </div>
-                `;
-            }
-
-            const renderListingCard = (item, isOwnListing = false) => {
-                return `
-                    <div class="border rounded-lg p-4 shadow-sm bg-white flex flex-col justify-between">
-                        <div>
-                            <div class="flex justify-between items-center mb-2">
-                                <h4 class="text-lg font-bold text-gray-900">${item.name}</h4>
-                                <span class="font-bold text-xl text-green-600">${formatCurrency(item.price)}</span>
-                            </div>
-                            <p class="text-sm text-gray-600 mb-3">${item.description || 'Nessuna descrizione.'}</p>
-                            <p class="text-xs text-gray-400">Venditore: ${item.sellerUsername}</p>
-                        </div>
-                        <div class="mt-4">
-                            ${isOwnListing ? 
-                                `<button onclick="window.handleDeleteListing('${item.id}')" class="btn-secondary w-full bg-red-100 text-red-700 hover:bg-red-200">Ritira dalla Vendita</button>` 
-                                : 
-                                (userHasCard ? 
-                                    `<button onclick="window.handlePurchaseItem('${item.id}')" class="btn-primary w-full">Acquista Ora</button>` 
-                                    : 
-                                    `<button class="btn-primary w-full opacity-50 cursor-not-allowed" disabled title="Registra una carta per acquistare">Acquista Ora</button>`)
-                            }
-                        </div>
-                    </div>
-                `;
-            };
-
-            const html = `
-                <div id="epunt-container" class="w-full">
-                    ${backButton}
-                    <div class="flex justify-between items-center mb-6">
-                        <h1 class="text-3xl header text-left mb-0">🛒 Mercatino ePunt</h1>
-                        ${sellButtonHtml}
-                    </div>
-
-                    <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-2">In Vendita</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                        ${otherListings.length > 0 ? 
-                            otherListings.map(item => renderListingCard(item, false)).join('') 
-                            : 
-                            '<p class="text-gray-500 md:col-span-2 lg:col-span-3">Nessun oggetto in vendita al momento.</p>'
-                        }
-                    </div>
-
-                    ${userHasCard ? `
-                    <h2 class="text-xl font-bold text-gray-800 mb-3 border-b pb-2">I Tuoi Oggetti in Vendita</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        ${userListings.length > 0 ? 
-                            userListings.map(item => renderListingCard(item, true)).join('') 
-                            : 
-                            '<p class="text-gray-500 md:col-span-2 lg:col-span-3">Non hai nessun oggetto in vendita.</p>'
-                        }
-                    </div>
-                    ` : ''}
-                </div>
-            `;
-            showView(html);
-        };
-        
-        const renderCreateListingForm = () => {
-            const userCard = window.fakeCreditCards[0]; // Assumiamo la prima carta
-            if (!userCard) {
-                showMessageBox("Errore", "Devi avere una carta registrata per vendere.", "error", renderEpuntMarketplace);
-                return;
-            }
-            
-            const html = `
-                <div id="epunt-create-form" class="w-full">
-                    <div class="mb-4">
-                        <button onclick="window.renderEpuntMarketplace()" class="text-sm text-indigo-500 hover:text-indigo-700 flex items-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            Annulla
-                        </button>
-                    </div>
-                    <h1 class="text-2xl font-bold text-gray-800 mb-4">Metti in Vendita un Oggetto</h1>
-                    
-                    <div class="card bg-gray-50 p-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Oggetto</label>
-                        <input type="text" id="item_name" placeholder="Es. Puntina d'Oro" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
-                        
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Prezzo (EUR)</label>
-                        <input type="number" id="item_price" step="0.01" min="0.01" value="1.00" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
-
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Descrizione (facoltativa)</label>
-                        <textarea id="item_description" placeholder="Dettagli dell'oggetto..." class="w-full p-3 mb-6 border border-gray-300 rounded-lg"></textarea>
-                        
-                        <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-sm mb-6">
-                            I fondi della vendita saranno accreditati sulla tua prima carta registrata:
-                            <strong class="font-mono">${userCard.id.replace(/(\d{4})/g, '$1 ').trim()}</strong>
-                        </div>
-                        
-                        <button onclick="window.submitNewListing()" class="btn-primary w-full">Metti in Vendita</button>
-                    </div>
-                </div>
-            `;
-            showView(html);
-        };
-        
-        const submitNewListing = async () => {
-            const name = document.getElementById('item_name').value.trim();
-            const price = parseFloat(document.getElementById('item_price').value);
-            const description = document.getElementById('item_description').value.trim();
-            
-            const userCard = window.fakeCreditCards[0]; // Assumiamo la prima carta
-
-            if (!name || isNaN(price) || price <= 0) {
-                showMessageBox("Attenzione", "Inserisci un nome valido e un prezzo (maggiore di zero).", "alert");
-                return;
-            }
-            
-            if (!userCard) {
-                // Questo non dovrebbe succedere se la UI ha funzionato, ma è un check di sicurezza
-                showMessageBox("Errore", "Nessuna carta trovata per la vendita.", "error");
-                return;
-            }
-
-            showLoader(true);
-            try {
-                await addDoc(getEpuntListingsCollection(), {
-                    name: name,
-                    description: description,
-                    price: price,
-                    status: 'active',
-                    sellerUsername: currentUserData.username,
-                    sellerUid: currentUserId,
-                    sellerCardId: userCard.id, // Salviamo la carta su cui accreditare
-                    createdAt: new Date().toISOString()
-                });
-                showMessageBox("Successo", `'${name}' è ora in vendita nel mercatino!`, "success", () => {
-                    renderEpuntMarketplace();
-                });
-            } catch (error) {
-                console.error("Errore nella creazione dell'annuncio:", error);
-                showMessageBox("Errore", "Impossibile creare l'annuncio.", "error");
-            }
-            showLoader(false);
-        };
-        
-        const handleDeleteListing = (listingId) => {
-            if (!listingId) return;
-            const item = (window.epuntListings || []).find(l => l.id === listingId);
-            if (!item || item.sellerUid !== currentUserId) {
-                 showMessageBox("Errore", "Non puoi rimuovere questo oggetto.", "error");
-                 return;
-            }
-            
-            showMessageBox("Conferma Rimozione", `Vuoi ritirare '${item.name}' dalla vendita?`, 'alert', async () => {
-                showLoader(true);
-                try {
-                    // Usiamo deleteDoc per rimuovere l'annuncio
-                    await deleteDoc(doc(getEpuntListingsCollection(), listingId));
-                    showMessageBox("Successo", "Oggetto rimosso dalla vendita.", "success");
-                    // Il listener aggiornerà la UI
-                } catch (error) {
-                    console.error("Errore nella rimozione dell'annuncio:", error);
-                    showMessageBox("Errore", "Impossibile rimuovere l'annuncio.", "error");
-                }
-                showLoader(false);
-            });
-        };
-        
-        const handlePurchaseItem = (listingId) => {
-            if (!listingId) return;
-            const item = (window.epuntListings || []).find(l => l.id === listingId);
-            if (!item) {
-                 showMessageBox("Errore", "Oggetto non più disponibile.", "error");
-                 return;
-            }
-            
-            // LOGICA BANCHIERE: Bloccata
-            // if(true) { // Qui andrebbe la logica per verificare se un banchiere è attivo
-            //     showMessageBox("Funzione Bloccata", "Le transazioni sono attualmente gestite da un Banchiere e devono essere approvate. Questa funzione non è ancora implementata.", "alert");
-            //     return;
-            // }
-
-            const buyerCard = window.fakeCreditCards[0]; // Assumiamo la prima carta
-            
-            if (!buyerCard) {
-                showMessageBox("Errore", "Devi avere una carta registrata per acquistare.", "error");
-                return;
-            }
-            if (buyerCard.balance < item.price) {
-                showMessageBox("Saldo Insufficiente", `La tua carta (${buyerCard.id.replace(/(\d{4})/g, '$1 ').trim()}) ha solo ${formatCurrency(buyerCard.balance)}. Saldo richiesto: ${formatCurrency(item.price)}.`, "error");
-                return;
-            }
-
-            const confirmMessage = `
-                <p>Vuoi acquistare <strong>'${item.name}'</strong> per <strong>${formatCurrency(item.price)}</strong>?</p>
-                <p class="text-sm mt-3">L'importo sarà addebitato sulla tua carta: <br><strong class="font-mono">${buyerCard.id.replace(/(\d{4})/g, '$1 ').trim()}</strong></p>
-            `;
-
-            showMessageBox("Conferma Acquisto", confirmMessage, 'alert', async () => {
-                showLoader(true);
-                try {
-                    const buyerCardRef = doc(getCardsCollection(), buyerCard.id);
-                    const sellerCardRef = doc(getCardsCollection(), item.sellerCardId);
-                    const listingRef = doc(getEpuntListingsCollection(), item.id);
-                    
-                    // 1. Leggi il saldo del venditore (è necessario perché non lo abbiamo in tempo reale)
-                    const sellerCardSnap = await getDoc(sellerCardRef);
-                    if (!sellerCardSnap.exists()) {
-                        throw new Error(`La carta del venditore (${item.sellerCardId}) non è stata trovata.`);
-                    }
-                    
-                    const sellerCardData = sellerCardSnap.data();
-                    
-                    // Calcola i nuovi saldi
-                    const buyerNewBalance = buyerCard.balance - item.price;
-                    const sellerNewBalance = sellerCardData.balance + item.price;
-                    
-                    // 2. Aggiorna il saldo del compratore
-                    await updateDoc(buyerCardRef, { balance: buyerNewBalance });
-                    
-                    // 3. Aggiorna il saldo del venditore
-                    await updateDoc(sellerCardRef, { balance: sellerNewBalance });
-                    
-                    // 4. Aggiorna l'annuncio a 'sold'
-                    await updateDoc(listingRef, { 
-                        status: 'sold', 
-                        buyerUsername: currentUserData.username, 
-                        buyerUid: currentUserId, 
-                        soldAt: new Date().toISOString() 
-                    });
-
-                    showMessageBox("Acquisto Riuscito!", `Hai acquistato '${item.name}'!`, "success");
-                    // Il listener aggiornerà la UI rimuovendo l'oggetto (perché non più 'active')
-                    
-                } catch (error) {
-                    console.error("Errore durante la transazione:", error);
-                    showMessageBox("Errore di Transazione", "Impossibile completare l'acquisto. L'oggetto potrebbe non essere più disponibile o la carta del venditore rimossa. (" + error.message + ")", "error");
-                }
-                showLoader(false);
-            });
-        };
-        
-        // --- NUOVA SEZIONE: GESTIONE LAVORI (Jobs) ---
-        
-        const renderJobsView = () => {
-            const backButton = `
-                <div class="mb-4">
-                    <button onclick="window.handleBackToDashboard()" class="text-sm text-indigo-500 hover:text-indigo-700 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Torna alla Dashboard
-                    </button>
-                </div>
-            `;
-            
-            let html = `
-                <div id="jobs-container" class="w-full">
-                    ${backButton}
-                    <h1 class="text-3xl header text-left mb-6">💼 Gestione Lavori</h1>
-                    ${isAdmin ? renderAdminJobsView() : renderUserJobsView()}
-                </div>
-            `;
-            showView(html);
-        };
-        
-        // --- VISTA LAVORI PER UTENTE ---
-        const renderUserJobsView = () => {
-            const { job, quitCount } = currentUserData;
-            
-            if (job) {
-                // L'utente ha un lavoro
-                const jobName = window.AVAILABLE_JOBS[job] || job;
-                let jobActionsHtml = '';
-                
-                // Azioni specifiche per lavoro (segnaposto)
-                if (job === 'banker') {
-                    jobActionsHtml = `<button onclick="window.showNotImplemented()" class="btn-primary w-full mt-4">Approva Transazioni (Non implementato)</button>`;
-                } else if (job === 'musician') {
-                    jobActionsHtml = `<button onclick="window.showNotImplemented()" class="btn-primary w-full mt-4">Carica MP3 (Non implementato)</button>`;
-                } else if (job === 'gamedev') {
-                    jobActionsHtml = `<button onclick="window.showNotImplemented()" class="btn-primary w-full mt-4">Carica Gioco (Non implementato)</button>`;
-                } else if (job === 'nurse') {
-                    jobActionsHtml = `<div class="p-3 bg-green-50 text-green-800 rounded-lg mt-4 text-sm">Il tuo stipendio viene pagato automaticamente (${formatCurrency(window.NURSE_PAY_PER_THUMBTACK)} per puntina) quando l'Admin approva le tue richieste.</div>`;
-                }
-                
-                return `
-                    <h2 class="text-xl font-bold text-gray-800 mb-4" id="job-status-header">Il Tuo Lavoro Attuale</h2>
-                    <div class="p-6 border rounded-lg bg-indigo-50">
-                        <p class="text-lg text-indigo-800">Sei impiegato come: <strong class="text-2xl">${jobName}</strong></p>
-                        ${jobActionsHtml}
-                        <hr class="my-6 border-indigo-200">
-                        <p class="text-sm text-gray-600 mb-4">Se ti licenzi, conterà come una delle tue ${3 - quitCount} dimissioni rimaste.</p>
-                        <button onclick="window.handleQuitJob()" class="btn-secondary w-full bg-red-100 text-red-700 hover:bg-red-200">Licenziati</button>
-                    </div>
-                `;
-            } else {
-                // L'utente è disoccupato
-                if (quitCount >= 3) {
-                    return `
-                        <h2 class="text-xl font-bold text-gray-800 mb-4" id="job-status-header">Cerca Lavoro</h2>
-                        <div class="p-6 border rounded-lg bg-red-50 text-red-800">
-                            <p class="font-bold">Hai esaurito i tuoi tentativi.</p>
-                            <p>Ti sei licenziato ${quitCount} volte (massimo 3) e non puoi più candidarti per un lavoro.</p>
-                        </div>
-                    `;
-                }
-                
-                // Mostra lista lavori
-                const jobListHtml = Object.keys(window.AVAILABLE_JOBS).map(jobId => {
-                    const jobName = window.AVAILABLE_JOBS[jobId];
-                    return `
-                        <div class="list-item">
-                            <span class="font-semibold">${jobName}</span>
-                            <button onclick="window.handleApplyForJob('${jobId}')" class="btn-primary w-auto px-4 py-2 text-sm">Candidati</button>
-                        </div>
-                    `;
-                }).join('');
-                
-                return `
-                    <h2 class="text-xl font-bold text-gray-800 mb-4" id="job-status-header">Cerca Lavoro</h2>
-                    <p class="text-gray-600 mb-4">Sei disoccupato. Puoi candidarti per una posizione. Hai ${3 - quitCount} dimissioni rimaste.</p>
-                    <div class="border rounded-lg overflow-hidden">
-                        ${jobListHtml}
-                    </div>
-                `;
-            }
-        };
-        
-        // --- VISTA LAVORI PER ADMIN ---
-        const renderAdminJobsView = () => {
-            const applications = window.jobApplications || [];
-            const employees = (window.allUsers || []).filter(u => u.job);
-
-            const applicationsHtml = applications.length > 0 ? applications.map(app => {
-                const jobName = window.AVAILABLE_JOBS[app.jobId] || app.jobId;
-                return `
-                    <div class="list-item bg-yellow-50">
-                        <div class="flex-1">
-                            <p><strong class="font-semibold">${app.username}</strong> si candida per <strong>${jobName}</strong></p>
-                            <p class="text-xs text-gray-500">Data: ${new Date(app.timestamp).toLocaleDateString()}</p>
-                        </div>
-                        <div class="flex space-x-2">
-                            <button onclick="window.showUserInfractions('${app.username}', '${app.id}', '${app.jobId}')" class="btn-secondary w-auto px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800">Vedi Foglio</button>
-                            <button onclick="window.handleJobApplication('${app.id}', 'reject', '${app.username}', '${app.jobId}')" class="btn-secondary w-auto px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700">Rifiuta</button>
-                            <button onclick="window.handleJobApplication('${app.id}', 'approve', '${app.username}', '${app.jobId}')" class="btn-secondary w-auto px-3 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-700">Approva</button>
-                        </div>
-                    </div>
-                `;
-            }).join('') : '<p class="text-gray-500 p-4">Nessuna candidatura pendente.</p>';
-            
-            const employeesHtml = employees.length > 0 ? employees.map(user => {
-                 const jobName = window.AVAILABLE_JOBS[user.job] || user.job;
-                 return `
-                    <div class="list-item">
-                        <div class="flex-1">
-                            <p><strong class="font-semibold">${user.username}</strong> - ${jobName}</p>
-                            <p class="text-xs text-gray-500">Dimissioni usate: ${user.quitCount || 0}</p>
-                        </div>
-                        <div class="flex space-x-2">
-                            <button onclick="window.renderInfractionModal('${user.username}')" class="btn-secondary w-auto px-3 py-1 text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800">Nota Demerito</button>
-                            <button onclick="window.handleFireUser('${user.username}')" class="btn-secondary w-auto px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700">Licenzia</button>
-                        </div>
-                    </div>
-                 `;
-            }).join('') : '<p class="text-gray-500 p-4">Nessun dipendente attivo.</p>';
-
-            return `
-                <div class="flex border-b mb-4">
-                    <span id="tab-applications" class="tab active" onclick="window.switchJobTab('applications')">Candidature Pendenti (${applications.length})</span>
-                    <span id="tab-employees" class="tab" onclick="window.switchJobTab('employees')">Gestione Dipendenti (${employees.length})</span>
-                </div>
-                
-                <div id="content-applications">
-                    <div class="border rounded-lg overflow-hidden">${applicationsHtml}</div>
-                </div>
-                
-                <div id="content-employees" class="hidden">
-                    <div class="border rounded-lg overflow-hidden">${employeesHtml}</div>
-                </div>
-            `;
-        };
-        
-        const switchJobTab = (tabName) => {
-            if (tabName === 'applications') {
-                document.getElementById('content-applications').classList.remove('hidden');
-                document.getElementById('content-employees').classList.add('hidden');
-                document.getElementById('tab-applications').classList.add('active');
-                document.getElementById('tab-employees').classList.remove('active');
-            } else {
-                document.getElementById('content-applications').classList.add('hidden');
-                document.getElementById('content-employees').classList.remove('hidden');
-                document.getElementById('tab-applications').classList.remove('active');
-                document.getElementById('tab-employees').classList.add('active');
-            }
-        };
-
-        const showNotImplemented = () => {
-            showMessageBox("Funzione non disponibile", "Questa funzionalità (Musica, Giochi, Banchiere) è complessa e richiede un backend (Firebase Functions) e (Firebase Storage) per funzionare. Non è implementata.", "alert");
-        };
-
-        // --- Funzioni Logiche per Lavori ---
-        
-        const handleApplyForJob = async (jobId) => {
-            if (currentUserData.quitCount >= 3) {
-                 showMessageBox("Errore", "Hai esaurito i tuoi tentativi di candidatura.", "error");
-                 return;
-            }
-            
-            // Controlla se ha già una candidatura
-            const q = query(getJobApplicationsCollection(), where("username", "==", currentUserData.username), where("status", "==", "pending"));
-            const existingApp = await getDoc(q.docs[0]?.ref);
-            if (existingApp.exists()) {
-                showMessageBox("Attenzione", "Hai già una candidatura in sospeso. Attendi la risposta dell'Admin.", "alert");
-                return;
-            }
-
-            const jobName = window.AVAILABLE_JOBS[jobId] || jobId;
-            showMessageBox("Conferma Candidatura", `Vuoi candidarti per ${jobName}?`, "info", async () => {
-                showLoader(true);
-                try {
-                    await addDoc(getJobApplicationsCollection(), {
-                        username: currentUserData.username,
-                        authUid: currentUserId,
-                        jobId: jobId,
-                        status: 'pending',
-                        timestamp: new Date().toISOString()
-                    });
-                    showMessageBox("Successo", "Candidatura inviata! L'Admin la esaminerà.", "success");
-                } catch (error) {
-                    console.error("Errore candidatura:", error);
-                    showMessageBox("Errore", "Impossibile inviare la candidatura.", "error");
-                }
-                showLoader(false);
-            });
-        };
-        
-        const handleQuitJob = () => {
-             const { job, quitCount } = currentUserData;
-             if (!job) return;
-             
-             const jobName = window.AVAILABLE_JOBS[job] || job;
-             const newQuitCount = quitCount + 1;
-             
-             showMessageBox("Conferma Dimissioni", `Sei sicuro di volerti licenziare da ${jobName}? Userai 1 delle tue 3 dimissioni. (Tentativi rimasti: ${3 - quitCount})`, "alert", async () => {
-                showLoader(true);
-                 try {
-                    const userRef = doc(getAdminUsersCollection(), currentUserData.username);
-                    await updateDoc(userRef, {
-                        job: null,
-                        quitCount: newQuitCount
-                    });
-                    showMessageBox("Successo", "Ti sei licenziato. Ora sei disoccupato.", "success");
-                    // Il listener aggiornerà la UI
-                 } catch (error) {
-                    console.error("Errore dimissioni:", error);
-                    showMessageBox("Errore", "Impossibile elaborare le dimissioni.", "error");
-                 }
-                 showLoader(false);
-             });
-        };
-        
-        const handleJobApplication = async (appId, action, username, jobId) => {
-            if (!isAdmin) return;
-            const appRef = doc(getJobApplicationsCollection(), appId);
-            const userRef = doc(getAdminUsersCollection(), username);
-            
-            showLoader(true);
-            try {
-                if (action === 'approve') {
-                    await updateDoc(userRef, { job: jobId });
-                    await deleteDoc(appRef); // Rimuove la candidatura
-                    showMessageBox("Successo", `${username} è stato assunto come ${window.AVAILABLE_JOBS[jobId]}.`, "success");
-                } else {
-                    // Rifiuta
-                    await updateDoc(appRef, { status: 'rejected' }); // O deleteDoc(appRef)
-                    await deleteDoc(appRef); // Rimuoviamola
-                    showMessageBox("Successo", `Candidatura di ${username} rifiutata.`, "success");
-                }
-            } catch (error) {
-                console.error("Errore gestione candidatura:", error);
-                showMessageBox("Errore", "Impossibile processare la candidatura.", "error");
-            }
-            showLoader(false);
-        };
-        
-        const handleFireUser = (username) => {
-            if (!isAdmin) return;
-            
-            showMessageBox("Conferma Licenziamento", `Sei sicuro di voler licenziare ${username}? Questa azione non conta nel loro limite di dimissioni.`, "alert", async () => {
-                showLoader(true);
-                try {
-                    const userRef = doc(getAdminUsersCollection(), username);
-                    await updateDoc(userRef, { job: null });
-                    showMessageBox("Successo", `${username} è stato licenziato.`, "success");
-                } catch (error) {
-                    console.error("Errore licenziamento:", error);
-                    showMessageBox("Errore", "Impossibile licenziare l'utente.", "error");
-                }
-                showLoader(false);
-            });
-        };
-        
-        // --- Funzioni Logica Infrazioni ("Foglio") ---
-        
-        const renderInfractionModal = (username) => {
-            if (!isAdmin) return;
-            const container = document.getElementById('app-container');
-            const existingModal = document.getElementById('infraction-modal');
-            if (existingModal) existingModal.remove();
-
-            const modalHTML = `
-                <div id="infraction-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                    <div class="card max-w-md">
-                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">Aggiungi Nota di Demerito</h3>
-                        <p class="text-sm text-gray-600 mb-4">Stai aggiungendo una nota per: <strong class="font-semibold">${username}</strong></p>
-                        
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Dettagli Infrazione/Errore</label>
-                        <textarea id="infraction_details" placeholder="Es. Ha sbagliato un pagamento, è stato scortese, ecc." class="w-full p-3 mb-6 border border-gray-300 rounded-lg h-32"></textarea>
-                        
-                        <div class="flex justify-end space-x-3">
-                            <button onclick="document.getElementById('infraction-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
-                            <button onclick="window.submitInfraction('${username}')" class="btn-primary w-auto px-4 py-2 bg-red-600 hover:bg-red-700">Registra Nota</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            container.insertAdjacentHTML('afterend', modalHTML);
-        };
-        
-        const submitInfraction = async (username) => {
-            if (!isAdmin) return;
-            const details = document.getElementById('infraction_details').value.trim();
-            if (!details) {
-                showMessageBox("Attenzione", "Inserisci i dettagli della nota di demerito.", "alert");
-                return;
-            }
-            
-            document.getElementById('infraction-modal').remove();
-            showLoader(true);
-            
-            try {
-                await addDoc(getUserInfractionsCollection(username), {
-                    details: details,
-                    timestamp: new Date().toISOString(),
-                    recordedBy: currentUserData.username
-                });
-                showMessageBox("Successo", `Nota di demerito registrata per ${username}.`, "success");
-            } catch (error) {
-                 console.error("Errore registrazione nota:", error);
-                 showMessageBox("Errore", "Impossibile registrare la nota.", "error");
-            }
-            showLoader(false);
-        };
-        
-        const showUserInfractions = async (username, appId = null, jobId = null) => {
-            if (!isAdmin) return;
-            showLoader(true);
-            
-            let infractionsHtml = '<p class="text-gray-500">Nessuna nota di demerito trovata.</p>';
-            
-            try {
-                const q = query(getUserInfractionsCollection(username), orderBy("timestamp", "desc"));
-                const snapshot = await getDocs(q); // Usa getDocs per una lettura singola
-                
-                if (!snapshot.empty) {
-                    infractionsHtml = snapshot.docs.map((doc, index) => {
-                        const data = doc.data();
-                        return `
-                            <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : ''}">
-                                <div class="flex-1">
-                                    <p class="text-gray-800">${data.details}</p>
-                                    <p class="text-xs text-gray-500">Registrato da: ${data.recordedBy} il ${new Date(data.timestamp).toLocaleDateString()}</p>
-                                </div>
-                            </div>
-                        `;
-                    }).join('');
-                }
-
-                // Modale speciale che include i pulsanti di assunzione
-                const container = document.getElementById('app-container');
-                const existingModal = document.getElementById('custom-modal');
-                if (existingModal) existingModal.remove();
-
-                const jobName = window.AVAILABLE_JOBS[jobId] || jobId;
-                const modalHTML = `
-                    <div id="custom-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                        <div class="card max-w-lg">
-                            <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">Foglio di Valutazione: ${username}</h3>
-                            <p class="text-sm text-gray-600 mb-4">Candidatura per: <strong>${jobName}</strong></p>
-                            
-                            <div class="border rounded-lg overflow-hidden max-h-64 overflow-y-auto mb-6">
-                                ${infractionsHtml}
-                            </div>
-                            
-                            <p class="text-sm font-semibold text-gray-700 mb-3">Decisione Candidatura:</p>
-                            <div class="flex justify-end space-x-3">
-                                <button onclick="document.getElementById('custom-modal').remove()" class="btn-secondary w-auto px-4 py-2">Chiudi</button>
-                                <button onclick="window.handleJobApplication('${appId}', 'reject', '${username}', '${jobId}'); document.getElementById('custom-modal').remove();" class="w-auto px-4 py-2 rounded-lg font-semibold bg-red-500 hover:bg-red-600 text-white">Rifiuta</button>
-                                <button onclick="window.handleJobApplication('${appId}', 'approve', '${username}', '${jobId}'); document.getElementById('custom-modal').remove();" class="w-auto px-4 py-2 rounded-lg font-semibold bg-green-500 hover:bg-green-600 text-white">Approva</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                container.insertAdjacentHTML('afterend', modalHTML);
-
-            } catch (error) {
-                console.error("Errore lettura foglio:", error);
-                showMessageBox("Errore", "Impossibile recuperare il foglio di valutazione.", "error");
-            }
-            showLoader(false);
-        };
-
 
 
         // --- MAIN APPLICATION FLOW ---
@@ -1992,40 +1480,27 @@
         window.handleRankChange = handleRankChange;
         window.handleRequestAction = handleRequestAction;
         window.handleAdminPasswordChange = handleAdminPasswordChange;
-        
+        window.handleJobAssignment = handleJobAssignment; // NUOVO
+
         // CALENDAR FUNCTIONS
         window.renderCalendarView = renderCalendarView;
         window.navigateCalendar = navigateCalendar;
         window.renderEventModal = renderEventModal;
         window.submitNewEvent = submitNewEvent;
         window.handleBackToDashboard = handleBackToDashboard;
-        window.showEventDetails = showEventDetails; // NUOVA
         
         // CARD FUNCTIONS
         window.registerNewCard = registerNewCard;
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
         
-        // EPUNT FUNCTIONS
-        window.renderEpuntMarketplace = renderEpuntMarketplace;
-        window.renderCreateListingForm = renderCreateListingForm;
-        window.submitNewListing = submitNewListing;
-        window.handleDeleteListing = handleDeleteListing;
-        window.handlePurchaseItem = handlePurchaseItem;
-        
-        // JOB FUNCTIONS (NUOVE)
-        window.renderJobsView = renderJobsView;
-        window.renderAdminJobsView = renderAdminJobsView;
-        window.renderUserJobsView = renderUserJobsView;
-        window.showNotImplemented = showNotImplemented;
-        window.handleApplyForJob = handleApplyForJob;
-        window.handleQuitJob = handleQuitJob;
-        window.handleJobApplication = handleJobApplication;
-        window.handleFireUser = handleFireUser;
-        window.renderInfractionModal = renderInfractionModal;
-        window.submitInfraction = submitInfraction;
-        window.showUserInfractions = showUserInfractions;
-        window.switchJobTab = switchJobTab;
+        // PRODUCT / MARKETPLACE FUNCTIONS (NUOVE)
+        window.renderMarketplaceView = renderMarketplaceView;
+        window.renderMobiliPuntinaHeadDashboard = renderMobiliPuntinaHeadDashboard;
+        window.renderProductModal = renderProductModal;
+        window.submitNewProduct = submitNewProduct;
+        window.deleteProduct = deleteProduct;
+        window.handleProductPurchase = handleProductPurchase;
         
     </script>
 </body>
