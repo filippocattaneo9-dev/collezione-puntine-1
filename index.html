@@ -77,14 +77,6 @@
             background-color: #e0f2f1;
             color: #0d9488;
         }
-        .badge-banker {
-            background-color: #d1e5fa;
-            color: #0d6d94;
-        }
-        .badge-capo {
-            background-color: #ffe4e6;
-            color: #ef4444;
-        }
         .badge-pending {
             background-color: #fee2e2;
             color: #ef4444;
@@ -117,14 +109,6 @@
             margin-bottom: 0.5rem;
             display: block;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-        }
-        /* Stile specifico per i prodotti */
-        .product-card {
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 1rem;
-            background-color: white;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
         @media (min-width: 640px) {
             body {
@@ -159,7 +143,7 @@
         window.currentCalendarDate = new Date(); 
         window.calendarEvents = [];
         window.fakeCreditCards = []; 
-        window.products = []; // Nuovo stato globale per i prodotti
+        window.jobVotes = []; // NUOVO: Stato globale per le votazioni dei lavori
     </script>
 
     <script type="module">
@@ -182,8 +166,6 @@
         let currentUserId = null;
         let currentUserData = null;
         let isAdmin = false;
-        let isBanker = false; // Nuovo stato per il ruolo Banker
-        let isMobiliHead = false; // Nuovo stato per il Capo Azienda Mobili Puntina
 
         // Credenziali hardcoded per il primo login Admin
         const ADMIN_USERNAME = "florianopu19";
@@ -194,8 +176,16 @@
             'Socio anziano',
             'Vice presidente',
             'Presidente'
-            // NOTA: il grado Mobili Puntina non è un "rank" di puntine ma un "job/role"
         ];
+        
+        // NUOVO: Lavori aggiuntivi su cui votare
+        const JOBS = [
+            'Infermiere',
+            'Costruttore',
+            'Banchiere',
+            'Puntina mobile'
+        ];
+
 
         // --- HELPER FUNCTIONS ---
 
@@ -203,9 +193,7 @@
         const getAdminUsersCollection = () => collection(db, `artifacts/${appId}/public/data/all_users_view`); 
         const getEventsCollection = () => collection(db, `artifacts/${appId}/public/data/calendar_events`); 
         const getCardsCollection = () => collection(db, `artifacts/${appId}/public/data/fake_credit_cards`);
-        // NUOVA COLLEZIONE PER I PRODOTTI (MERCATO "epunt")
-        const getProductsCollection = () => collection(db, `artifacts/${appId}/public/data/products`);
-
+        const getJobVotesCollection = () => collection(db, `artifacts/${appId}/public/data/job_votes`); // NUOVO
 
         const showView = (html) => {
             document.getElementById('content').innerHTML = html;
@@ -335,8 +323,6 @@
                         authUid: currentUserId,
                         role: initialRole,
                         rank: initialRank,
-                        isBanker: false, // Nuovo campo Banker
-                        isMobiliHead: false, // Nuovo campo Capo Azienda
                         totalThumbtacks: 0,
                         lastUpdate: new Date().toISOString()
                     };
@@ -347,8 +333,6 @@
                 // --- GESTIONE FLUSSO DOPO LOGIN/REGISTRAZIONE ---
                 currentUserData = userData;
                 isAdmin = currentUserData.role === 'admin';
-                isBanker = !!currentUserData.isBanker;
-                isMobiliHead = !!currentUserData.isMobiliHead;
                 
                 if (isAdmin && currentUserData.password === ADMIN_PASSWORD) {
                     renderAdminPasswordChangePrompt();
@@ -360,8 +344,6 @@
 
                 if (isAdmin) {
                     renderAdminDashboard();
-                } else if (isMobiliHead) { // NUOVO: Priorità al Capo Azienda
-                    renderMobiliPuntinaHeadDashboard();
                 } else {
                     renderUserDashboard();
                 }
@@ -464,6 +446,64 @@
         };
 
 
+        // --- UI COMPONENTS: JOB VOTING (NUOVO) ---
+        
+        const renderJobVotingSection = () => {
+            const votesData = window.jobVotes || [];
+            // Calcola il numero totale di votanti unici su tutti i lavori
+            const totalVoters = [...new Set(votesData.flatMap(v => v.voters || []))].length; 
+
+            const jobVotesMap = votesData.reduce((acc, job) => {
+                acc[job.id] = job;
+                return acc;
+            }, {});
+
+            const votingHtml = JOBS.map(job => {
+                const jobData = jobVotesMap[job] || { votes: 0, voters: [] };
+                const hasVoted = jobData.voters.includes(currentUserId);
+                const voteCount = jobData.votes;
+                const percentage = totalVoters > 0 ? ((voteCount / totalVoters) * 100).toFixed(1) : 0;
+                
+                const buttonHtml = hasVoted ? 
+                    `<span class="badge badge-confirmed ml-auto">Hai Votato</span>` :
+                    `<button onclick="window.submitJobVote('${job}')" class="btn-primary w-auto px-4 py-2 text-sm ml-auto" ${!currentUserId ? 'disabled' : ''}>Vota</button>`;
+
+                const progressBar = `
+                    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-1">
+                        <div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${percentage}%"></div>
+                    </div>
+                `;
+
+                return `
+                    <div class="list-item flex-col items-start bg-white">
+                        <div class="flex justify-between items-center w-full mb-2">
+                            <p class="font-bold text-gray-900 text-lg">${job}</p>
+                            ${buttonHtml}
+                        </div>
+                        <div class="w-full text-sm text-gray-700">
+                            ${progressBar}
+                            <div class="flex justify-between">
+                                <span class="font-semibold">${voteCount} Voti</span>
+                                <span>${percentage}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            return `
+                <div id="job-voting-section">
+                    <h3 class="text-xl font-bold text-gray-700 mb-3 mt-6 border-b pb-2">Votazione Lavori Aggiuntivi</h3>
+                    <p class="text-sm text-gray-600 mb-4">Vota per il tuo lavoro preferito. Puoi votare solo una volta per ciascun lavoro. (Totale votanti unici: <span class="font-bold text-indigo-600">${totalVoters}</span>)</p>
+                    <div class="border rounded-lg overflow-hidden mb-8">
+                        ${votingHtml}
+                    </div>
+                </div>
+            `;
+        };
+        // --- FINE UI COMPONENTS: JOB VOTING ---
+
+
         // --- USER DASHBOARD ---
 
         const renderUserDashboard = () => {
@@ -505,16 +545,10 @@
             } else {
                  cardListHTML = `<p class="text-center text-gray-500 py-4">Nessuna carta registrata. Registrane una qui sotto!</p>`;
             }
-            
-            // RUOLI AGGIUNTIVI VISIBILI ALL'UTENTE
-            const userRolesBadges = [];
-            if (isMobiliHead) userRolesBadges.push('<span class="badge badge-capo ml-2">CAPO AZIENDA MOBILI</span>');
-            if (isBanker) userRolesBadges.push('<span class="badge badge-banker ml-2">BANCARIO</span>');
-
 
             const html = `
                 <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username} ${userRolesBadges.join('')}</h2>
+                    <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username}</h2>
                     <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
                 </div>
 
@@ -524,12 +558,7 @@
                     ${currentUserData.email ? `<p class="text-indigo-700 text-xs mt-1">Email: ${currentUserData.email}</p>` : ''}
                 </div>
                 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                    <button onclick="window.renderMarketplaceView()" class="btn-primary bg-red-500 hover:bg-red-600">
-                        Vai su epunt (Marketplace)
-                    </button>
-                    <button onclick="window.renderCalendarView()" class="btn-primary">Visualizza Calendario Eventi</button>
-                </div>
+                <button onclick="window.renderCalendarView()" class="btn-primary mb-6">Visualizza Calendario Eventi</button>
                 
                 
                 <h3 class="text-xl font-bold text-gray-700 mb-3 mt-6 border-b pb-2">Gestione Carte di Credito Finte</h3>
@@ -544,6 +573,7 @@
                         class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-center text-lg font-mono" />
                     <button onclick="window.registerNewCard()" class="btn-primary">Registra Carta</button>
                 </div>
+                ${renderJobVotingSection()}
                 <h3 class="text-lg font-semibold mb-3 text-gray-700 border-b pb-2">Invia Richiesta Puntine</h3>
                 <div class="p-4 border border-gray-200 rounded-lg">
                     <label for="thumbtack_count" class="block text-sm font-medium text-gray-700 mb-2">Quante puntine hai collezionato?</label>
@@ -586,37 +616,21 @@
                 const currentRankIndex = RANKS.indexOf(user.rank);
                 const nextRankIndex = currentRankIndex < RANKS.length - 1 ? currentRankIndex + 1 : currentRankIndex;
                 const nextRankName = RANKS[nextRankIndex];
-                
-                const badges = [];
-                if (user.username === ADMIN_USERNAME) badges.push('<span class="badge badge-admin ml-2">ADMIN</span>');
-                if (user.isMobiliHead) badges.push('<span class="badge badge-capo ml-2">CAPO AZIENDA</span>');
-                if (user.isBanker) badges.push('<span class="badge badge-banker ml-2">BANCARIO</span>');
 
                 return `
-                    <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'} flex-wrap sm:flex-nowrap">
-                        <div class="flex-1 min-w-0 mr-4 py-1">
-                            <p class="font-semibold text-gray-900">${user.username} ${badges.join('')}</p>
+                    <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
+                        <div class="flex-1 min-w-0 mr-4">
+                            <p class="font-semibold text-gray-900">${user.username} ${user.username === ADMIN_USERNAME ? '<span class="badge badge-admin ml-2">ADMIN</span>' : ''}</p>
                             <p class="text-sm text-gray-500">Puntine: ${user.totalThumbtacks} - Grado: ${user.rank}</p>
                         </div>
                         
-                        <div class="flex items-center space-x-2 flex-wrap justify-end py-1">
+                        <div class="flex items-center space-x-2">
                         ${user.username !== ADMIN_USERNAME ? `
-                            <button onclick="window.handleRankChange('${user.username}', 'Promote')" 
+                            <button onclick="window.handleRankChange('${user.username}')" 
                                     class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-opacity ${RANKS.indexOf(user.rank) < RANKS.length - 1 ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-green-500 opacity-70 cursor-default'}" 
                                     ${currentRankIndex === RANKS.length - 1 ? 'disabled' : ''}>
                                 ${currentRankIndex < RANKS.length - 1 ? `Promuovi a ${nextRankName}` : 'Grado Massimo'}
                             </button>
-                            
-                            <button onclick="window.handleJobAssignment('${user.username}', 'isMobiliHead', ${!user.isMobiliHead})" 
-                                    class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-colors ${user.isMobiliHead ? 'bg-red-500 hover:bg-red-600' : 'bg-pink-500 hover:bg-pink-600'}">
-                                ${user.isMobiliHead ? 'Revoca Capo Az.' : 'Nomina Capo Az.'}
-                            </button>
-                            
-                            <button onclick="window.handleJobAssignment('${user.username}', 'isBanker', ${!user.isBanker})" 
-                                    class="text-xs font-semibold py-1 px-3 rounded-full text-white transition-colors ${user.isBanker ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}">
-                                ${user.isBanker ? 'Revoca Banker' : 'Nomina Banker'}
-                            </button>
-                            
                             ` : ''}
                         </div>
                     </div>
@@ -662,7 +676,6 @@
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">Dashboard Admin</h2>
                     <div class="flex space-x-3">
-                         <button onclick="window.renderMarketplaceView()" class="text-sm font-semibold text-red-500 hover:text-red-700">epunt</button>
                         <button onclick="window.renderCalendarView()" class="text-sm font-semibold text-indigo-500 hover:text-indigo-700">Calendario</button>
                         <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
                     </div>
@@ -686,8 +699,9 @@
                 <div class="border rounded-lg overflow-hidden mb-8">
                     ${adminCardsHtml}
                 </div>
-                
-                <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Ruoli)</h3>
+
+                ${renderJobVotingSection()}
+                <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Statistiche)</h3>
                 <div class="border rounded-lg overflow-hidden">
                     ${usersHtml}
                 </div>
@@ -695,110 +709,6 @@
             showView(html);
         };
         
-        // --- DASHBOARD CAPO AZIENDA MOBILI PUNTINA ---
-        
-        const renderMobiliPuntinaHeadDashboard = () => {
-            const products = window.products || [];
-            
-            const productListHtml = products.length > 0 ? products.map((product, index) => `
-                <div class="list-item ${index % 2 === 0 ? 'bg-pink-50' : 'bg-white'} flex-wrap sm:flex-nowrap">
-                    <div class="flex-1 min-w-0 mr-4 py-1">
-                        <p class="font-bold text-gray-900 text-lg">${product.name}</p>
-                        <p class="text-sm text-gray-500">${product.description}</p>
-                    </div>
-                    <div class="min-w-0 mr-4 py-1">
-                        <p class="text-lg font-bold text-red-600 whitespace-nowrap">Prezzo: ${formatCurrency(product.price)}</p>
-                    </div>
-                    <div class="flex space-x-2 mt-2 sm:mt-0">
-                        <button onclick="window.renderProductModal('${product.id}', '${product.name}', '${product.description}', ${product.price})" 
-                                class="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Modifica</button>
-                        <button onclick="window.deleteProduct('${product.id}', '${product.name}')" 
-                                class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Rimuovi</button>
-                    </div>
-                </div>
-            `).join('') : '<p class="text-center text-gray-500 py-4">Nessun mobile in vendita al momento. Aggiungine uno!</p>';
-
-
-            const html = `
-                <div class="flex justify-between items-center mb-6 border-b pb-3 border-red-300">
-                    <h2 class="text-2xl font-bold text-red-800">Dashboard Capo Azienda Mobili Puntina</h2>
-                    <div class="flex space-x-3">
-                        <button onclick="window.renderMarketplaceView()" class="text-sm font-semibold text-red-500 hover:text-red-700">epunt Pubblico</button>
-                        <button onclick="window.handleLogout()" class="text-sm text-red-500 hover:text-red-700">Logout</button>
-                    </div>
-                </div>
-                
-                <div class="bg-pink-100 p-4 rounded-lg mb-6 shadow-inner">
-                    <p class="text-pink-700 font-bold">Benvenuto, ${currentUserData.username}! Qui gestisci i mobili in vendita su epunt.</p>
-                </div>
-
-                <div class="mb-8">
-                    <button onclick="window.renderProductModal()" class="btn-primary bg-pink-600 hover:bg-pink-700 flex items-center justify-center w-full">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-                        </svg>
-                        Aggiungi Nuovo Mobile
-                    </button>
-                </div>
-                
-                <h3 class="text-xl font-bold text-gray-700 mb-3 border-b pb-2">Catalogo Mobili in Vendita</h3>
-                <div class="border rounded-lg overflow-hidden">
-                    ${productListHtml}
-                </div>
-                
-                <div class="mt-6">
-                    <button onclick="window.handleBackToDashboard()" class="text-sm text-gray-500 hover:text-gray-700">Torna alla Dashboard Utente</button>
-                </div>
-            `;
-            showView(html);
-        }
-        
-        // --- MARKETPLACE "epunt" VIEW ---
-        
-        const renderMarketplaceView = () => {
-             const products = window.products || [];
-             
-             const isHead = isMobiliHead;
-             
-             const productCardsHtml = products.length > 0 ? products.map(product => `
-                <div class="product-card">
-                    <h4 class="text-xl font-bold text-gray-900 mb-2">${product.name}</h4>
-                    <p class="text-sm text-gray-600 mb-3">${product.description || 'Nessuna descrizione.'}</p>
-                    <div class="flex justify-between items-center mb-4">
-                        <p class="text-2xl font-bold text-red-600">${formatCurrency(product.price)}</p>
-                        <p class="text-xs text-gray-500">Venditore: ${product.sellerUsername}</p>
-                    </div>
-                    <button onclick="window.handleProductPurchase('${product.id}', '${product.name}')" 
-                            class="btn-primary bg-green-500 hover:bg-green-600 py-2 px-4 w-full text-sm">
-                        Acquista Ora
-                    </button>
-                </div>
-             `).join('') : '<p class="text-center text-gray-500 py-8">Nessun prodotto (mobile) in vendita su epunt al momento.</p>';
-
-
-             const html = `
-                 <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-3xl font-bold text-red-600">epunt: Marketplace Mobili</h2>
-                    <button onclick="window.handleBackToDashboard()" class="text-sm text-indigo-500 hover:text-indigo-700">
-                        Torna alla Dashboard
-                    </button>
-                </div>
-                
-                ${isHead ? 
-                    `<div class="mb-6 p-4 bg-pink-50 border border-pink-300 rounded-lg">
-                        <p class="text-pink-700 font-semibold text-center">Sei il Capo Azienda Mobili! <a href="#" onclick="window.renderMobiliPuntinaHeadDashboard()" class="text-pink-800 underline">Gestisci i prodotti qui.</a></p>
-                    </div>` : ''}
-
-                <p class="text-gray-600 mb-6">Visualizza i prodotti in vendita. Dopo l'acquisto, il prodotto ti sarà consegnato a scuola.</p>
-                
-                <div id="product-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    ${productCardsHtml}
-                </div>
-             `;
-             showView(html);
-        }
-
-
         // --- CARD MANAGEMENT LOGIC ---
 
         const isValidCardNumber = (cardNumber) => {
@@ -846,7 +756,7 @@
 
         // Admin function: modal for balance modification
         const renderBalanceModal = (cardId, currentBalance, ownerUsername) => {
-            if (!isAdmin && !isBanker) return;
+            if (!isAdmin) return;
             const container = document.getElementById('app-container');
             const existingModal = document.getElementById('balance-modal');
             if (existingModal) existingModal.remove();
@@ -874,7 +784,7 @@
         
         // Admin function: process card actions (add/subtract/delete)
         const handleAdminCardAction = (cardId, action) => {
-            if (!isAdmin && !isBanker) return;
+            if (!isAdmin) return;
             
             if (action === 'delete') {
                 showMessageBox("Conferma Eliminazione", `Sei sicuro di voler RIMUOVERE definitivamente la carta ${cardId}?`, 'error', async () => {
@@ -948,44 +858,55 @@
         // --- REAL-TIME DATA LISTENERS ---
 
         const startListeningForData = () => {
-            // 1. All Users (Used by Admin and for User Profile updates)
-            const qUsers = getAdminUsersCollection();
-            onSnapshot(qUsers, (snapshot) => {
-                let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
-                window.allUsers = users;
-                
-                if (!isAdmin && currentUserData) {
-                    // Update current user data if logged in as non-admin
-                    const updatedUser = users.find(u => u.username === currentUserData.username);
-                    if (updatedUser) {
-                        currentUserData = updatedUser;
-                        isBanker = !!currentUserData.isBanker;
-                        isMobiliHead = !!currentUserData.isMobiliHead;
-                    }
-                }
-                
-                if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                     renderAdminDashboard();
-                } else if (isMobiliHead && document.getElementById('content').innerHTML.includes('Capo Azienda Mobili Puntina')) {
-                     renderMobiliPuntinaHeadDashboard();
-                } else if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
-                    renderUserDashboard();
-                }
-
-            }, (error) => console.error("Errore nel listener Utenti:", error));
-
-            // 2. All Requests (Admin/User specific)
             if (isAdmin) {
+                // 1. All Users
+                const qUsers = getAdminUsersCollection();
+                onSnapshot(qUsers, (snapshot) => {
+                    let users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    users.sort((a, b) => b.totalThumbtacks - a.totalThumbtacks); 
+                    window.allUsers = users;
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
+                         renderAdminDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Utenti:", error));
+
+                // 2. All Requests
                 const qRequests = query(getRequestsCollection(), orderBy("timestamp", "desc"));
                 onSnapshot(qRequests, (snapshot) => {
                     window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin') || document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                        renderAdminDashboard(); // Rende anche per gli admin le modifiche
+                    }
+                }, (error) => console.error("Errore nel listener Richieste:", error));
+
+                // 3. All Cards (Admin)
+                const qCards = getCardsCollection();
+                onSnapshot(qCards, (snapshot) => {
+                    window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                     if (document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
                         renderAdminDashboard();
                     }
-                }, (error) => console.error("Errore nel listener Richieste:", error));
+                }, (error) => console.error("Errore nel listener Carte Admin:", error));
+
+                
             } else {
-                // User Requests (Recenti)
+                // Regular user 
+                
+                // 1. User Profile
+                const userProfileRef = doc(getAdminUsersCollection(), currentUserData.username);
+                onSnapshot(userProfileRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        currentUserData = docSnap.data();
+                        if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                            renderUserDashboard();
+                        }
+                    } else {
+                        showMessageBox("Errore", "Il tuo profilo è stato eliminato. Disconnessione forzata.", "error");
+                        handleLogout();
+                    }
+                }, (error) => console.error("Errore nel listener Profilo Utente:", error));
+
+                // 2. User Requests (Recenti)
                 const qUserRequests = query(
                     getRequestsCollection(),
                     where("authUid", "==", currentUserId),
@@ -999,17 +920,19 @@
                         renderUserDashboard();
                     }
                 }, (error) => console.error("Errore nel listener Richieste Utente:", error));
+                
+                // 3. User Cards
+                const qUserCards = query(
+                    getCardsCollection(),
+                    where("ownerUid", "==", currentUserId)
+                );
+                onSnapshot(qUserCards, (snapshot) => {
+                    window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                        renderUserDashboard();
+                    }
+                }, (error) => console.error("Errore nel listener Carte Utente:", error));
             }
-
-            // 3. All Cards (Admin/User specific)
-            const cardQuery = (isAdmin || isBanker) ? getCardsCollection() : query(getCardsCollection(), where("ownerUid", "==", currentUserId));
-            onSnapshot(cardQuery, (snapshot) => {
-                window.fakeCreditCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                 if (document.getElementById('content').innerHTML.includes('Puntine Totali') || document.getElementById('content').innerHTML.includes('Dashboard Admin')) {
-                    if (isAdmin || isBanker) renderAdminDashboard();
-                    else renderUserDashboard();
-                }
-            }, (error) => console.error("Errore nel listener Carte:", error));
             
             // 4. Calendar Events (Publicly viewable by all)
             const qEvents = query(getEventsCollection(), orderBy("date", "asc")); 
@@ -1020,41 +943,19 @@
                 }
             }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
             
-            // 5. Products (Publicly viewable by all)
-            const qProducts = getProductsCollection();
-            onSnapshot(qProducts, (snapshot) => {
-                window.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                 if (document.getElementById('product-list')) {
-                    renderMarketplaceView();
-                } else if (isMobiliHead && document.getElementById('content').innerHTML.includes('Dashboard Capo Azienda')) {
-                    renderMobiliPuntinaHeadDashboard();
+            // 5. Job Votes (Publicly viewable by all) - NUOVO LISTENER
+            const qVotes = getJobVotesCollection(); 
+            onSnapshot(qVotes, (snapshot) => {
+                window.jobVotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Rende dashboard se la sezione di votazione è visibile
+                if (document.getElementById('job-voting-section')) {
+                    if (isAdmin) renderAdminDashboard();
+                    else renderUserDashboard();
                 }
-            }, (error) => console.error("Errore nel listener Prodotti:", error));
+            }, (error) => console.error("Errore nel listener Votazioni Lavori:", error));
         };
         
         // --- REQUESTS AND RANKS LOGIC ---
-        
-        // NUOVA FUNZIONE: Assegnazione Ruoli (Banker/Capo Azienda)
-        const handleJobAssignment = (username, jobKey, assignment) => {
-             if (!isAdmin) return;
-
-             const jobName = jobKey === 'isBanker' ? 'Bancario' : 'Capo Azienda Mobili Puntina';
-             const action = assignment ? 'Nominare' : 'Revocare';
-             const message = `Sei sicuro di voler ${action} l'utente ${username} come ${jobName}?`;
-
-             showMessageBox("Conferma Ruolo", message, 'alert', async () => {
-                showLoader(true);
-                try {
-                    const userRef = doc(getAdminUsersCollection(), username);
-                    await updateDoc(userRef, { [jobKey]: assignment });
-                    showMessageBox("Successo", `${username} è stato ${assignment ? 'nominato' : 'revocato'} come ${jobName}.`, "success");
-                } catch (error) {
-                    console.error(`Errore nell'assegnazione del ruolo ${jobName}:`, error);
-                    showMessageBox("Errore", "Impossibile aggiornare il ruolo.", "error");
-                }
-                showLoader(false);
-             });
-        }
 
         const submitThumbtackRequest = async () => {
             const countInput = document.getElementById('thumbtack_count');
@@ -1155,104 +1056,49 @@
             });
         };
         
-        // --- PRODOTTI / MARKETPLACE LOGIC ---
+        // --- VOTING LOGIC (NUOVO) ---
         
-        const renderProductModal = (id = null, name = '', description = '', price = 0) => {
-            if (!isMobiliHead) return;
-            const container = document.getElementById('app-container');
-            const existingModal = document.getElementById('product-modal');
-            if (existingModal) existingModal.remove();
-            
-            const isEdit = id !== null;
+        const submitJobVote = async (jobName) => {
+            if (!currentUserId || !currentUserData) return showMessageBox("Errore", "Devi essere loggato per votare.", "error");
 
-            const modalHTML = `
-                <div id="product-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                    <div class="card max-w-md">
-                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">${isEdit ? 'Modifica Mobile' : 'Aggiungi Nuovo Mobile'}</h3>
-                        
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Mobile</label>
-                        <input type="text" id="product_name" placeholder="Nome del prodotto" value="${name}" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
-                        
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Prezzo (€)</label>
-                        <input type="number" id="product_price" step="0.01" min="0.01" value="${price.toFixed(2)}" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
-
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Descrizione</label>
-                        <textarea id="product_description" placeholder="Dettagli del prodotto..." class="w-full p-3 mb-6 border border-gray-300 rounded-lg">${description}</textarea>
-                        
-                        <div class="flex justify-end space-x-3">
-                            <button onclick="document.getElementById('product-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
-                            <button onclick="window.submitNewProduct('${id}')" class="btn-primary w-auto px-4 py-2">${isEdit ? 'Salva Modifiche' : 'Aggiungi Prodotto'}</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            container.insertAdjacentHTML('afterend', modalHTML);
-        }
-        
-        const submitNewProduct = async (id) => {
-            if (!isMobiliHead) return;
-            const name = document.getElementById('product_name').value.trim();
-            const price = parseFloat(document.getElementById('product_price').value);
-            const description = document.getElementById('product_description').value.trim();
-
-            if (!name || isNaN(price) || price <= 0) {
-                showMessageBox("Attenzione", "Inserisci un nome valido e un prezzo maggiore di zero.", "alert");
-                return;
-            }
-
-            document.getElementById('product-modal').remove(); 
+            const jobRef = doc(getJobVotesCollection(), jobName);
             showLoader(true);
-            
-            const productData = {
-                name: name,
-                price: price, 
-                description: description,
-                sellerUid: currentUserId,
-                sellerUsername: currentUserData.username,
-                lastUpdate: new Date().toISOString()
-            };
-            
+
             try {
-                if (id) {
-                    // Modifica
-                    await updateDoc(doc(getProductsCollection(), id), productData);
-                    showMessageBox("Successo", `Il mobile '${name}' è stato aggiornato.`, "success");
+                const jobSnap = await getDoc(jobRef);
+                
+                if (!jobSnap.exists()) {
+                    // Inizializza il documento se non esiste (primo voto)
+                    await setDoc(jobRef, {
+                        job: jobName,
+                        votes: 1,
+                        voters: [currentUserId]
+                    });
+                    showMessageBox("Voto Eseguito", `Hai votato per ${jobName}!`, "success");
+
                 } else {
-                    // Aggiungi
-                    await addDoc(getProductsCollection(), productData);
-                    showMessageBox("Successo", `Il mobile '${name}' è stato messo in vendita su epunt!`, "success");
+                    const jobData = jobSnap.data();
+                    
+                    if (jobData.voters && jobData.voters.includes(currentUserId)) {
+                        showMessageBox("Attenzione", `Hai già votato per il lavoro: ${jobName}.`, "alert");
+                        showLoader(false);
+                        return;
+                    }
+
+                    // Aggiorna il documento esistente
+                    await updateDoc(jobRef, {
+                        votes: (jobData.votes || 0) + 1,
+                        voters: [...(jobData.voters || []), currentUserId]
+                    });
+                     showMessageBox("Voto Eseguito", `Hai votato per ${jobName}!`, "success");
                 }
             } catch (error) {
-                console.error("Errore nell'operazione prodotto:", error);
-                showMessageBox("Errore", "Impossibile salvare il mobile.", "error");
+                console.error("Errore durante il voto:", error);
+                showMessageBox("Errore di Votazione", "Impossibile registrare il tuo voto. Controlla la console.", "error");
             }
             showLoader(false);
-        }
-        
-        const deleteProduct = (id, name) => {
-            if (!isMobiliHead) return;
-            
-            showMessageBox("Conferma Eliminazione", `Sei sicuro di voler RIMUOVERE il mobile '${name}' dalla vendita?`, 'error', async () => {
-                showLoader(true);
-                try {
-                    await deleteDoc(doc(getProductsCollection(), id));
-                    showMessageBox("Successo", `Mobile '${name}' rimosso con successo.`, "success");
-                } catch (error) {
-                    console.error("Errore nell'eliminazione del mobile:", error);
-                    showMessageBox("Errore", "Impossibile rimuovere il mobile.", "error");
-                }
-                showLoader(false);
-            });
-        }
-        
-        const handleProductPurchase = (productId, productName) => {
-             // Simula l'acquisto, dato che l'utente ha detto che la consegna è a scuola e non ha chiesto una logica di transazione complessa.
-            showMessageBox("Conferma Acquisto", `Sei sicuro di voler acquistare il mobile '${productName}'? L'accordo sarà finalizzato e il prodotto consegnato a scuola.`, 'info', () => {
-                 // Qui si potrebbe aggiungere una transazione di puntine o un log, ma per ora basta un messaggio di successo.
-                 showMessageBox("Acquisto Confermato", `Complimenti, hai "acquistato" '${productName}'. Un Capo Azienda Mobili Puntina ti contatterà per la consegna a scuola!`, "success");
-                 console.log(`Acquisto simulato: ${currentUserData.username} ha comprato ${productName} (ID: ${productId})`);
-            });
-        }
+        };
+        // --- FINE VOTING LOGIC ---
 
 
         // --- CALENDAR LOGIC AND UI ---
@@ -1343,10 +1189,8 @@
         };
         
         const handleBackToDashboard = () => {
-             if (isAdmin) {
+            if (isAdmin) {
                 renderAdminDashboard();
-            } else if (isMobiliHead) {
-                renderMobiliPuntinaHeadDashboard();
             } else {
                 renderUserDashboard();
             }
@@ -1475,18 +1319,14 @@
 
         initializeAuth();
         
-        // ***************************************************************
         // --- ESPOSIZIONE DELLE FUNZIONI GLOBALI (CRITICO PER IL FUNZIONAMENTO DEI PULSANTI) ---
-        // ***************************************************************
         window.handleLogout = handleLogout;
         window.handleLoginClick = handleLoginClick;
         window.submitThumbtackRequest = submitThumbtackRequest;
         window.handleRankChange = handleRankChange;
         window.handleRequestAction = handleRequestAction;
         window.handleAdminPasswordChange = handleAdminPasswordChange;
-        // Funzione per l'assegnazione dei lavori/ruoli (Banker/Capo Azienda)
-        window.handleJobAssignment = handleJobAssignment; 
-
+        
         // CALENDAR FUNCTIONS
         window.renderCalendarView = renderCalendarView;
         window.navigateCalendar = navigateCalendar;
@@ -1499,13 +1339,8 @@
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
         
-        // PRODUCT / MARKETPLACE FUNCTIONS
-        window.renderMarketplaceView = renderMarketplaceView;
-        window.renderMobiliPuntinaHeadDashboard = renderMobiliPuntinaHeadDashboard;
-        window.renderProductModal = renderProductModal;
-        window.submitNewProduct = submitNewProduct;
-        window.deleteProduct = deleteProduct;
-        window.handleProductPurchase = handleProductPurchase;
+        // NEW VOTING FUNCTIONS
+        window.submitJobVote = submitJobVote;
         
     </script>
 </body>
