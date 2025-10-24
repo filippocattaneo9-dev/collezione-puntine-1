@@ -969,6 +969,8 @@
                      renderAdminDashboard();
                 } else if (isMobiliHead && document.getElementById('content').innerHTML.includes('Capo Azienda Mobili Puntina')) {
                      renderMobiliPuntinaHeadDashboard();
+                } else if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                    renderUserDashboard();
                 }
 
             }, (error) => console.error("Errore nel listener Utenti:", error));
@@ -1473,14 +1475,17 @@
 
         initializeAuth();
         
+        // ***************************************************************
         // --- ESPOSIZIONE DELLE FUNZIONI GLOBALI (CRITICO PER IL FUNZIONAMENTO DEI PULSANTI) ---
+        // ***************************************************************
         window.handleLogout = handleLogout;
         window.handleLoginClick = handleLoginClick;
         window.submitThumbtackRequest = submitThumbtackRequest;
         window.handleRankChange = handleRankChange;
         window.handleRequestAction = handleRequestAction;
         window.handleAdminPasswordChange = handleAdminPasswordChange;
-        window.handleJobAssignment = handleJobAssignment; // NUOVO
+        // Funzione per l'assegnazione dei lavori/ruoli (Banker/Capo Azienda)
+        window.handleJobAssignment = handleJobAssignment; 
 
         // CALENDAR FUNCTIONS
         window.renderCalendarView = renderCalendarView;
@@ -1494,7 +1499,7 @@
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
         
-        // PRODUCT / MARKETPLACE FUNCTIONS (NUOVE)
+        // PRODUCT / MARKETPLACE FUNCTIONS
         window.renderMarketplaceView = renderMarketplaceView;
         window.renderMobiliPuntinaHeadDashboard = renderMobiliPuntinaHeadDashboard;
         window.renderProductModal = renderProductModal;
