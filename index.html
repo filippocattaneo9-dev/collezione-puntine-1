@@ -125,7 +125,15 @@
         <div id="content" class="hidden"></div>
     </div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+
+        setLogLevel('Debug'); // Mostra i log di Firestore nella console per il debug
+        
         // NON MODIFICARE QUESTA VARIABILE
         const __app_id = 'thumbtack-collector-v1'; 
         
@@ -143,33 +151,25 @@
         window.currentCalendarDate = new Date(); 
         window.calendarEvents = [];
         window.fakeCreditCards = []; 
-        window.jobVotes = []; // Stato globale per le votazioni dei lavori
-        window.epuntListings = []; // NUOVO: Stato globale per gli oggetti nel mercatino
-        window.jobApplications = []; // Stato globale per le candidature
+        window.epuntListings = []; 
+        window.jobApplications = []; 
 
-        // Configurazione Lavori (Aggiunti Infermiere, Costruttore, Banchiere, Puntina mobile)
+        // Configurazione Lavori (Nuovi Lavori Aggiunti)
         window.AVAILABLE_JOBS = {
             'nurse': 'Infermiere',
             'builder': 'Costruttore',
             'banker': 'Banchiere',
-            'mobile_thumbtack': 'Puntina mobile'
+            'mobile_thumbtack': 'Puntina mobile',
+            'musician': 'Musicista', // NUOVO
+            'game_designer': 'Designer di videogiochi' // NUOVO
         };
         
         // Paga specifica per i lavori
         window.NURSE_PAY_PER_THUMBTACK = 0.50; // 0.50€ per puntina approvata
-    </script>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-
-        setLogLevel('Debug'); // Mostra i log di Firestore nella console per il debug
         
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const config = firebaseConfig; 
+        // LIMITE DIMISSIONI AGGIORNATO (da 2 a 5)
+        const MAX_QUIT_COUNT = 5;
+
 
         // --- GLOBAL STATE & FIREBASE SETUP ---
         const app = initializeApp(config);
@@ -191,20 +191,15 @@
             'Presidente'
         ];
         
-        // Lavori aggiuntivi su cui votare
-        const JOBS = Object.values(window.AVAILABLE_JOBS);
-
-
         // --- HELPER FUNCTIONS ---
 
-        const getRequestsCollection = () => collection(db, `artifacts/${appId}/public/data/thumbtack_requests`);
-        const getAdminUsersCollection = () => collection(db, `artifacts/${appId}/public/data/all_users_view`); 
-        const getEventsCollection = () => collection(db, `artifacts/${appId}/public/data/calendar_events`); 
-        const getCardsCollection = () => collection(db, `artifacts/${appId}/public/data/fake_credit_cards`);
-        const getJobVotesCollection = () => collection(db, `artifacts/${appId}/public/data/job_votes`); 
-        const getEpuntListingsCollection = () => collection(db, `artifacts/${appId}/public/data/epunt_listings`); // NUOVO
-        const getJobApplicationsCollection = () => collection(db, `artifacts/${appId}/public/data/job_applications`); // NUOVO
-        const getInfractionsCollection = () => collection(db, `artifacts/${appId}/public/data/infractions`); // NUOVO
+        const getRequestsCollection = () => collection(db, `artifacts/${__app_id}/public/data/thumbtack_requests`);
+        const getAdminUsersCollection = () => collection(db, `artifacts/${__app_id}/public/data/all_users_view`); 
+        const getEventsCollection = () => collection(db, `artifacts/${__app_id}/public/data/calendar_events`); 
+        const getCardsCollection = () => collection(db, `artifacts/${__app_id}/public/data/fake_credit_cards`);
+        const getEpuntListingsCollection = () => collection(db, `artifacts/${__app_id}/public/data/epunt_listings`); 
+        const getJobApplicationsCollection = () => collection(db, `artifacts/${__app_id}/public/data/job_applications`); 
+        const getInfractionsCollection = () => collection(db, `artifacts/${__app_id}/public/data/infractions`); 
 
         const showView = (html) => {
             document.getElementById('content').innerHTML = html;
@@ -466,63 +461,6 @@
         };
 
 
-        // --- UI COMPONENTS: JOB VOTING ---
-        
-        const renderJobVotingSection = () => {
-            const votesData = window.jobVotes || [];
-            // Calcola il numero totale di votanti unici su tutti i lavori
-            const totalVoters = [...new Set(votesData.flatMap(v => v.voters || []))].length; 
-
-            const jobVotesMap = votesData.reduce((acc, job) => {
-                acc[job.id] = job;
-                return acc;
-            }, {});
-
-            const votingHtml = JOBS.map(job => {
-                const jobData = jobVotesMap[job] || { votes: 0, voters: [] };
-                const hasVoted = jobData.voters.includes(currentUserId);
-                const voteCount = jobData.votes;
-                const percentage = totalVoters > 0 ? ((voteCount / totalVoters) * 100).toFixed(1) : 0;
-                
-                const buttonHtml = hasVoted ? 
-                    `<span class="badge badge-confirmed ml-auto">Hai Votato</span>` :
-                    `<button onclick="window.submitJobVote('${job}')" class="btn-primary w-auto px-4 py-2 text-sm ml-auto" ${!currentUserId ? 'disabled' : ''}>Vota</button>`;
-
-                const progressBar = `
-                    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-1">
-                        <div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${percentage}%"></div>
-                    </div>
-                `;
-
-                return `
-                    <div class="list-item flex-col items-start bg-white">
-                        <div class="flex justify-between items-center w-full mb-2">
-                            <p class="font-bold text-gray-900 text-lg">${job}</p>
-                            ${buttonHtml}
-                        </div>
-                        <div class="w-full text-sm text-gray-700">
-                            ${progressBar}
-                            <div class="flex justify-between">
-                                <span class="font-semibold">${voteCount} Voti</span>
-                                <span>${percentage}%</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-            
-            return `
-                <div id="job-voting-section">
-                    <h3 class="text-xl font-bold text-gray-700 mb-3 mt-6 border-b pb-2">Votazione Lavori Aggiuntivi</h3>
-                    <p class="text-sm text-gray-600 mb-4">Vota per il tuo lavoro preferito. Puoi votare solo una volta per ciascun lavoro. (Totale votanti unici: <span class="font-bold text-indigo-600">${totalVoters}</span>)</p>
-                    <div class="border rounded-lg overflow-hidden mb-8">
-                        ${votingHtml}
-                    </div>
-                </div>
-            `;
-        };
-        // --- FINE UI COMPONENTS: JOB VOTING ---
-        
         // --- UI COMPONENTS: EPUNT MARKETPLACE ---
 
         const renderEpuntMarketplace = () => {
@@ -615,6 +553,128 @@
         };
         
         // --- FINE UI COMPONENTS: EPUNT MARKETPLACE ---
+        
+        // --- BANKER MANAGEMENT LOGIC & UI (NUOVO) ---
+        
+        const renderBankerDashboard = () => {
+            const allCards = window.allCards || [];
+            
+            // Per semplicità, il Banchiere gestisce TUTTE le carte come l'Admin
+            const adminCardsHtml = allCards.length > 0 ? allCards.map((card, index) => `
+                <option value="${card.id}">${formatCardNumber(card.id)} (${card.ownerUsername}) - Saldo: ${formatCurrency(card.balance)}</option>
+            `).join('') : '<option disabled>Nessuna carta registrata</option>';
+            
+            const html = `
+                <h3 class="text-xl font-bold text-gray-700 mb-3 border-b pb-2">Gestione Carte (Banchiere)</h3>
+                
+                <div class="bg-indigo-50 p-4 rounded-lg mb-6 border border-indigo-300">
+                    <h4 class="text-lg font-bold text-indigo-800 mb-3">Effettua Bonifico Tra Carte</h4>
+                    
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Carta Mittente</label>
+                    <select id="sender_card_id" class="w-full p-3 mb-4 border border-gray-300 rounded-lg">
+                        ${adminCardsHtml}
+                    </select>
+                    
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Carta Destinataria</label>
+                    <select id="receiver_card_id" class="w-full p-3 mb-4 border border-gray-300 rounded-lg">
+                        ${adminCardsHtml}
+                    </select>
+
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Importo da Trasferire</label>
+                    <input type="number" id="transfer_amount" min="0.01" step="0.01" value="1.00" class="w-full p-3 mb-6 border border-gray-300 rounded-lg" required />
+                    
+                    <button onclick="window.handleCardTransfer()" class="btn-primary bg-indigo-600 hover:bg-indigo-700">Esegui Bonifico</button>
+                </div>
+                
+                <h3 class="text-xl font-bold text-gray-700 mb-3 border-b pb-2">Tutte le Carte Registrate</h3>
+                <div class="border rounded-lg overflow-hidden mb-8">
+                     ${allCards.length > 0 ? allCards.map((card, index) => `
+                        <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
+                            <div class="flex-1 min-w-0 mr-4">
+                                <p class="font-bold text-gray-900 font-mono">${formatCardNumber(card.id)}</p>
+                                <p class="text-sm text-gray-500">Proprietario: <span class="font-semibold">${card.ownerUsername}</span></p>
+                            </div>
+                            <p class="text-lg font-bold text-indigo-600 whitespace-nowrap">${formatCurrency(card.balance)}</p>
+                        </div>
+                    `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna carta finta registrata nel sistema.</p>'}
+                </div>
+            `;
+            return html;
+        };
+
+        const handleCardTransfer = () => {
+            if (currentUserData.job !== 'banker' && currentUserData.role !== 'admin') {
+                showMessageBox("Errore", "Solo un Banchiere o un Admin può eseguire bonifici.", "error");
+                return;
+            }
+
+            const senderId = document.getElementById('sender_card_id').value;
+            const receiverId = document.getElementById('receiver_card_id').value;
+            const amount = parseFloat(document.getElementById('transfer_amount').value);
+
+            if (senderId === receiverId) {
+                showMessageBox("Errore", "La carta mittente e quella destinataria non possono essere le stesse.", "error");
+                return;
+            }
+            if (isNaN(amount) || amount <= 0) {
+                showMessageBox("Errore", "L'importo del bonifico deve essere un valore positivo.", "error");
+                return;
+            }
+            
+            const senderCard = window.allCards.find(c => c.id === senderId);
+
+            if (!senderCard) {
+                showMessageBox("Errore", "Carta mittente non trovata.", "error");
+                return;
+            }
+            if (senderCard.balance < amount) {
+                showMessageBox("Errore", `Saldo insufficiente sulla carta mittente (${formatCurrency(senderCard.balance)}).`, "error");
+                return;
+            }
+
+            showMessageBox("Conferma Bonifico", `Sei sicuro di voler trasferire ${formatCurrency(amount)} da ${formatCardNumber(senderId)} a ${formatCardNumber(receiverId)}?`, 'alert', async () => {
+                showLoader(true);
+                try {
+                    const senderRef = doc(getCardsCollection(), senderId);
+                    const receiverRef = doc(getCardsCollection(), receiverId);
+
+                    await runTransaction(db, async (transaction) => {
+                        const senderDoc = await transaction.get(senderRef);
+                        const receiverDoc = await transaction.get(receiverRef);
+
+                        if (!senderDoc.exists() || !receiverDoc.exists()) {
+                            throw new Error("Una o entrambe le carte non esistono più.");
+                        }
+
+                        const newSenderBalance = senderDoc.data().balance - amount;
+                        const newReceiverBalance = receiverDoc.data().balance + amount;
+
+                        if (newSenderBalance < 0) {
+                            throw new Error("Saldo mittente insufficiente durante la transazione.");
+                        }
+
+                        transaction.update(senderRef, { 
+                            balance: newSenderBalance,
+                            lastUpdate: new Date().toISOString()
+                        });
+                        
+                        transaction.update(receiverRef, { 
+                            balance: newReceiverBalance,
+                            lastUpdate: new Date().toISOString()
+                        });
+                    });
+                    
+                    showMessageBox("Bonifico Riuscito", `Trasferimento di ${formatCurrency(amount)} completato con successo.`, "success");
+                    
+                } catch (error) {
+                    console.error("Errore durante il bonifico:", error);
+                    showMessageBox("Errore Transazione", `Impossibile completare il bonifico: ${error.message || 'Errore sconosciuto'}.`, "error");
+                }
+                showLoader(false);
+            });
+        };
+        
+        // --- FINE BANKER MANAGEMENT LOGIC & UI ---
 
 
         // --- USER DASHBOARD ---
@@ -663,6 +723,23 @@
             const jobName = currentUserData.job ? window.AVAILABLE_JOBS[currentUserData.job] : 'Disoccupato';
             const jobColor = currentUserData.job ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-gray-50 border-gray-300 text-gray-700';
 
+            const isBanker = currentUserData.job === 'banker';
+            
+            // Contenuto aggiuntivo se Banchiere
+            const bankerContent = isBanker ? renderBankerDashboard() : '';
+            
+            // Se Banchiere, la sezione di registrazione carte non serve
+            const cardRegistrationHtml = !isBanker ? `
+                <div class="p-4 border border-gray-200 rounded-lg mb-8">
+                    <h4 class="text-lg font-semibold mb-3 text-gray-700">Registra Nuova Carta (12 Cifre)</h4>
+                    <input type="text" id="card_number_input" placeholder="XXXX XXXX XXXX" maxlength="12" pattern="[0-9]{12}" 
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 12);" 
+                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-center text-lg font-mono" />
+                    <button onclick="window.registerNewCard()" class="btn-primary">Registra Carta</button>
+                </div>
+            ` : '';
+
+
             const html = `
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">${currentUserData.username}</h2>
@@ -690,14 +767,9 @@
                     ${cardListHTML}
                 </div>
                 
-                <div class="p-4 border border-gray-200 rounded-lg mb-8">
-                    <h4 class="text-lg font-semibold mb-3 text-gray-700">Registra Nuova Carta (12 Cifre)</h4>
-                    <input type="text" id="card_number_input" placeholder="XXXX XXXX XXXX" maxlength="12" pattern="[0-9]{12}" 
-                        oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 12);" 
-                        class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-center text-lg font-mono" />
-                    <button onclick="window.registerNewCard()" class="btn-primary">Registra Carta</button>
-                </div>
-                ${renderJobVotingSection()}
+                ${bankerContent}
+                
+                ${cardRegistrationHtml}
                 <h3 class="text-lg font-semibold mb-3 text-gray-700 border-b pb-2">Invia Richiesta Puntine</h3>
                 <div class="p-4 border border-gray-200 rounded-lg">
                     <label for="thumbtack_count" class="block text-sm font-medium text-gray-700 mb-2">Quante puntine hai collezionato?</label>
@@ -855,7 +927,6 @@
                     ${adminCardsHtml}
                 </div>
 
-                ${renderJobVotingSection()}
                 <h3 class="text-xl font-bold text-gray-700 mb-3">Gestione Utenti (Grado e Statistiche)</h3>
                 <div class="border rounded-lg overflow-hidden">
                     ${usersHtml}
@@ -1010,7 +1081,7 @@
             showLoader(false);
         }
 
-        // --- REAL-TIME DATA LISTENERS (CORRETTO BUG EPUNT) ---
+        // --- REAL-TIME DATA LISTENERS ---
 
         const startListeningForData = () => {
             if (isAdmin) {
@@ -1031,7 +1102,7 @@
                     window.thumbtackRequests = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                     if (document.getElementById('content').innerHTML.includes('Dashboard Admin') || document.getElementById('content').innerHTML.includes('Puntine Totali')) {
                         if (isAdmin) renderAdminDashboard();
-                        else renderUserDashboard(); // Rende anche per gli admin le modifiche
+                        else renderUserDashboard(); 
                     }
                 }, (error) => console.error("Errore nel listener Richieste:", error));
 
@@ -1040,7 +1111,7 @@
                 onSnapshot(qCards, (snapshot) => {
                     window.allCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                     window.fakeCreditCards = window.allCards.filter(card => card.ownerUid === currentUserId);
-                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin') || document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin') || document.getElementById('content').innerHTML.includes('Puntine Totali') || document.getElementById('content').innerHTML.includes('Gestione Carte (Banchiere)')) {
                         if (isAdmin) renderAdminDashboard();
                         else renderUserDashboard();
                     }
@@ -1065,7 +1136,7 @@
                 onSnapshot(userProfileRef, (docSnap) => {
                     if (docSnap.exists()) {
                         currentUserData = docSnap.data();
-                        if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                        if (document.getElementById('content').innerHTML.includes('Puntine Totali') || document.getElementById('content').innerHTML.includes('Gestione Carte (Banchiere)')) {
                             renderUserDashboard();
                         }
                     } else {
@@ -1097,7 +1168,7 @@
                 onSnapshot(qUserCards, (snapshot) => {
                     window.allCards = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                     window.fakeCreditCards = window.allCards.filter(card => card.ownerUid === currentUserId);
-                    if (document.getElementById('content').innerHTML.includes('Puntine Totali')) {
+                    if (document.getElementById('content').innerHTML.includes('Puntine Totali') || document.getElementById('content').innerHTML.includes('Gestione Carte (Banchiere)')) {
                         renderUserDashboard();
                     }
                 }, (error) => console.error("Errore nel listener Carte Utente:", error));
@@ -1124,18 +1195,7 @@
                 }
             }, (error) => console.error("Errore nel listener Eventi Calendario:", error));
             
-            // 6. Job Votes (Publicly viewable by all)
-            const qVotes = getJobVotesCollection(); 
-            onSnapshot(qVotes, (snapshot) => {
-                window.jobVotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Rende dashboard se la sezione di votazione è visibile
-                if (document.getElementById('job-voting-section')) {
-                    if (isAdmin) renderAdminDashboard();
-                    else renderUserDashboard();
-                }
-            }, (error) => console.error("Errore nel listener Votazioni Lavori:", error));
-            
-            // 7. Epunt Listings (Mercatino) - CORREZIONE BUG
+            // 6. Epunt Listings (Mercatino)
             const qListings = getEpuntListingsCollection();
             onSnapshot(qListings, (snapshot) => {
                 window.epuntListings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1271,50 +1331,6 @@
             });
         };
         
-        // --- VOTING LOGIC ---
-        
-        const submitJobVote = async (jobName) => {
-            if (!currentUserId || !currentUserData) return showMessageBox("Errore", "Devi essere loggato per votare.", "error");
-
-            const jobRef = doc(getJobVotesCollection(), jobName);
-            showLoader(true);
-
-            try {
-                const jobSnap = await getDoc(jobRef);
-                
-                if (!jobSnap.exists()) {
-                    // Inizializza il documento se non esiste (primo voto)
-                    await setDoc(jobRef, {
-                        job: jobName,
-                        votes: 1,
-                        voters: [currentUserId]
-                    });
-                    showMessageBox("Voto Eseguito", `Hai votato per ${jobName}!`, "success");
-
-                } else {
-                    const jobData = jobSnap.data();
-                    
-                    if (jobData.voters && jobData.voters.includes(currentUserId)) {
-                        showMessageBox("Attenzione", `Hai già votato per il lavoro: ${jobName}.`, "alert");
-                        showLoader(false);
-                        return;
-                    }
-
-                    // Aggiorna il documento esistente
-                    await updateDoc(jobRef, {
-                        votes: (jobData.votes || 0) + 1,
-                        voters: [...(jobData.voters || []), currentUserId]
-                    });
-                     showMessageBox("Voto Eseguito", `Hai votato per ${jobName}!`, "success");
-                }
-            } catch (error) {
-                console.error("Errore durante il voto:", error);
-                showMessageBox("Errore di Votazione", "Impossibile registrare il tuo voto. Controlla la console.", "error");
-            }
-            showLoader(false);
-        };
-        // --- FINE VOTING LOGIC ---
-        
         // --- EPUNT MARKETPLACE LOGIC ---
         
         const submitNewListing = async () => {
@@ -1384,30 +1400,36 @@
                 try {
                     const listingRef = doc(getEpuntListingsCollection(), listingId);
                     const cardRef = doc(getCardsCollection(), card.id);
-                    const sellerUserRef = doc(getAdminUsersCollection(), window.epuntListings.find(l => l.id === listingId).sellerUsername);
+                    const sellerUsername = window.epuntListings.find(l => l.id === listingId).sellerUsername;
+                    
+                    const sellerUserDoc = window.allUsers.find(u => u.username === sellerUsername);
+                    if (!sellerUserDoc) throw new Error("Venditore non trovato.");
+                    
+                    const sellerCard = window.allCards.find(c => c.ownerUid === sellerUserDoc.authUid);
+                    if (!sellerCard) throw new Error("Il venditore non ha una carta registrata per ricevere il pagamento.");
+                    
+                    const sellerCardRef = doc(getCardsCollection(), sellerCard.id);
 
                     await runTransaction(db, async (transaction) => {
                         const listingDoc = await transaction.get(listingRef);
-                        const cardDoc = await transaction.get(cardRef);
+                        const buyerCardDoc = await transaction.get(cardRef);
+                        const sellerCardDoc = await transaction.get(sellerCardRef);
                         
                         if (!listingDoc.exists()) {
-                            throw "Annuncio non trovato o già venduto.";
+                            throw new Error("Annuncio non trovato o già venduto.");
                         }
-                        
-                        const sellerDoc = await transaction.get(sellerUserRef);
-                        const sellerCard = window.allCards.find(c => c.ownerUid === sellerDoc.data().authUid);
-                        
-                        if (!sellerCard) {
-                             throw "Il venditore non ha una carta registrata per ricevere il pagamento.";
-                        }
-                        const sellerCardRef = doc(getCardsCollection(), sellerCard.id);
                         
                         // 1. Scalare il saldo dall'acquirente
-                        transaction.update(cardRef, { balance: cardDoc.data().balance - price });
+                        transaction.update(cardRef, { 
+                            balance: buyerCardDoc.data().balance - price,
+                            lastUpdate: new Date().toISOString()
+                        });
                         
                         // 2. Aggiungere il saldo al venditore
-                        const sellerCardDoc = await transaction.get(sellerCardRef);
-                        transaction.update(sellerCardRef, { balance: sellerCardDoc.data().balance + price });
+                        transaction.update(sellerCardRef, { 
+                            balance: sellerCardDoc.data().balance + price,
+                            lastUpdate: new Date().toISOString()
+                        });
                         
                         // 3. Eliminare l'annuncio
                         transaction.delete(listingRef);
@@ -1425,7 +1447,7 @@
         
         // --- FINE EPUNT MARKETPLACE LOGIC ---
         
-        // --- JOB MANAGEMENT LOGIC & UI (CORRETTO BUG CANDIDATI) ---
+        // --- JOB MANAGEMENT LOGIC & UI (LIMITE DIMISSIONI AGGIORNATO A 5) ---
         
         const renderJobsView = () => {
              const html = `
@@ -1446,20 +1468,15 @@
         };
         
         const renderAdminJobsView = () => {
-            const usersWithJobs = window.allUsers.filter(u => u.job);
-            const pendingApplications = window.jobApplications.filter(app => app.status === 'pending');
-            const allApplications = window.jobApplications.filter(app => app.status !== 'pending');
-            
             // Per semplicità, gestisco solo la vista utente per i lavori
             return renderUserJobsView(); // Reindirizzo all'interfaccia utente (anche per l'admin per ora)
         };
 
 
-        // *** CORREZIONE BUG CANDIDATI ***
         const renderUserJobsView = () => {
             if (currentUserData.job) {
                 const jobName = window.AVAILABLE_JOBS[currentUserData.job] || currentUserData.job;
-                const quitDisabled = currentUserData.quitCount >= 2;
+                const quitDisabled = currentUserData.quitCount >= MAX_QUIT_COUNT; // AGGIORNATO IL LIMITE
                 
                 let payRateHtml = '';
                 if (currentUserData.job === 'nurse') {
@@ -1471,7 +1488,7 @@
                         <h4 class="text-xl font-bold text-green-800">Sei Assunto!</h4>
                         <p class="text-green-700 mt-2">Attualmente lavori come <span class="font-bold">${jobName}</span>.</p>
                         ${payRateHtml}
-                        <p class="text-sm text-gray-600 mt-4">Dimissioni utilizzate: ${currentUserData.quitCount} di 2</p>
+                        <p class="text-sm text-gray-600 mt-4">Dimissioni utilizzate: ${currentUserData.quitCount} di ${MAX_QUIT_COUNT}</p>
                         <button onclick="window.handleQuitJob()" class="btn-primary bg-red-600 hover:bg-red-700 mt-4 ${quitDisabled ? 'opacity-50 cursor-not-allowed' : ''}" ${quitDisabled ? 'disabled' : ''}>
                             ${quitDisabled ? 'Limite Dimissioni Raggiunto' : 'Dimettiti dal Lavoro'}
                         </button>
@@ -1488,7 +1505,6 @@
                 if (existingApplication) {
                     buttonHtml = `<span class="badge badge-pending">Domanda Inviata</span>`;
                 } else {
-                    // CORREZIONE BUG: Chiamiamo la funzione corretta handleApplyForJob
                     buttonHtml = `<button onclick="window.handleApplyForJob('${id}')" class="btn-primary w-auto px-4 py-2 text-sm">Candidati</button>`;
                 }
 
@@ -1557,12 +1573,12 @@
         
         const handleQuitJob = () => {
             const jobName = window.AVAILABLE_JOBS[currentUserData.job];
-            if (currentUserData.quitCount >= 2) {
-                 showMessageBox("Attenzione", "Hai raggiunto il limite massimo di dimissioni (2). Non puoi dimetterti di nuovo.", "alert");
+            if (currentUserData.quitCount >= MAX_QUIT_COUNT) { // AGGIORNATO IL LIMITE
+                 showMessageBox("Attenzione", `Hai raggiunto il limite massimo di dimissioni (${MAX_QUIT_COUNT}). Non puoi dimetterti di nuovo.`, "alert");
                  return;
             }
             
-            showMessageBox("Conferma Dimissioni", `Sei sicuro di volerti dimettere dal tuo ruolo di ${jobName}? Questo consumerà una delle tue 2 opportunità di dimissioni.`, 'alert', async () => {
+            showMessageBox("Conferma Dimissioni", `Sei sicuro di volerti dimettere dal tuo ruolo di ${jobName}? Questo consumerà una delle tue ${MAX_QUIT_COUNT} opportunità di dimissioni.`, 'alert', async () => { // AGGIORNATO IL MESSAGGIO
                 showLoader(true);
                 try {
                     const userRef = doc(getAdminUsersCollection(), currentUserData.username);
@@ -1646,7 +1662,6 @@
             }
 
             while (day <= daysInMonth) {
-                const dateString = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
                 const isToday = isCurrentMonth && day === today.getDate();
                 const dayEvents = eventsMap[day] || [];
 
@@ -1849,9 +1864,7 @@
         window.registerNewCard = registerNewCard;
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
-        
-        // NEW VOTING FUNCTIONS
-        window.submitJobVote = submitJobVote;
+        window.handleCardTransfer = handleCardTransfer; // NUOVO: Funzione Bonifico per Banchiere
         
         // EPUNT FUNCTIONS
         window.renderEpuntMarketplace = renderEpuntMarketplace;
@@ -1863,7 +1876,7 @@
         // JOB FUNCTIONS
         window.renderJobsView = renderJobsView;
         window.renderUserJobsView = renderUserJobsView;
-        window.handleApplyForJob = handleApplyForJob; // CORRETTO BUG
+        window.handleApplyForJob = handleApplyForJob;
         window.handleQuitJob = handleQuitJob;
         window.handleJobApplication = handleJobApplication;
         
