@@ -129,6 +129,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js"; // NUOVO: Import per Firebase Storage
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 
@@ -172,9 +173,10 @@
 
 
         // --- GLOBAL STATE & FIREBASE SETUP ---
-        const app = initializeApp(config);
+        const app = initializeApp(firebaseConfig); // Usa firebaseConfig
         const db = getFirestore(app);
         const auth = getAuth(app);
+        const storage = getStorage(app); // NUOVO: Inizializza Storage
         
         let currentUserId = null;
         let currentUserData = null;
@@ -284,6 +286,10 @@
             } catch (error) {
                 console.error("Errore nell'autenticazione iniziale:", error);
                 showMessageBox("Errore Critico", "Impossibile connettersi ai servizi di autenticazione Firebase. Controlla la tua configurazione.", "error");
+                
+                // FIX: Nasconde il loader e mostra la schermata di benvenuto anche in caso di fallimento auth
+                showLoader(false); 
+                renderWelcomeScreen();
             }
         };
 
@@ -1864,7 +1870,7 @@
         window.registerNewCard = registerNewCard;
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
-        window.handleCardTransfer = handleCardTransfer; // NUOVO: Funzione Bonifico per Banchiere
+        window.handleCardTransfer = handleCardTransfer; // Bonifico per Banchiere
         
         // EPUNT FUNCTIONS
         window.renderEpuntMarketplace = renderEpuntMarketplace;
