@@ -85,6 +85,10 @@
             background-color: #d1fae5;
             color: #059669;
         }
+        .badge-infraction {
+            background-color: #fce7f3;
+            color: #be185d;
+        }
         /* Stile specifico per il calendario */
         .calendar-box {
             border: 1px solid #e0e0e0;
@@ -129,11 +133,11 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, orderBy, limit, addDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js"; // NUOVO: Import per Firebase Storage
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 
-        setLogLevel('Debug'); // Mostra i log di Firestore nella console per il debug
+        setLogLevel('Debug');
         
         // NON MODIFICARE QUESTA VARIABILE
         const __app_id = 'thumbtack-collector-v1'; 
@@ -154,29 +158,31 @@
         window.fakeCreditCards = []; 
         window.epuntListings = []; 
         window.jobApplications = []; 
+        window.allInfractions = []; // NUOVO: Global state per le infrazioni
 
-        // Configurazione Lavori (Nuovi Lavori Aggiunti)
+
+        // Configurazione Lavori
         window.AVAILABLE_JOBS = {
             'nurse': 'Infermiere',
             'builder': 'Costruttore',
             'banker': 'Banchiere',
             'mobile_thumbtack': 'Puntina mobile',
-            'musician': 'Musicista', // NUOVO
-            'game_designer': 'Designer di videogiochi' // NUOVO
+            'musician': 'Musicista',
+            'game_designer': 'Designer di videogiochi'
         };
         
         // Paga specifica per i lavori
-        window.NURSE_PAY_PER_THUMBTACK = 0.50; // 0.50€ per puntina approvata
+        window.NURSE_PAY_PER_THUMBTACK = 0.50; 
         
-        // LIMITE DIMISSIONI AGGIORNATO (da 2 a 5)
+        // LIMITE DIMISSIONI
         const MAX_QUIT_COUNT = 5;
 
 
         // --- GLOBAL STATE & FIREBASE SETUP ---
-        const app = initializeApp(firebaseConfig); // Usa firebaseConfig
+        const app = initializeApp(firebaseConfig); 
         const db = getFirestore(app);
         const auth = getAuth(app);
-        const storage = getStorage(app); // NUOVO: Inizializza Storage
+        const storage = getStorage(app); 
         
         let currentUserId = null;
         let currentUserData = null;
@@ -560,7 +566,7 @@
         
         // --- FINE UI COMPONENTS: EPUNT MARKETPLACE ---
         
-        // --- BANKER MANAGEMENT LOGIC & UI (NUOVO) ---
+        // --- BANKER MANAGEMENT LOGIC & UI ---
         
         const renderBankerDashboard = () => {
             const allCards = window.allCards || [];
@@ -819,6 +825,10 @@
                 const nextRankIndex = currentRankIndex < RANKS.length - 1 ? currentRankIndex + 1 : currentRankIndex;
                 const nextRankName = RANKS[nextRankIndex];
                 const jobName = user.job ? window.AVAILABLE_JOBS[user.job] : 'N/D';
+                
+                // Conteggio Infrazioni (per Admin Dashboard)
+                const userInfractions = (window.allInfractions || []).filter(i => i.infractedUid === user.authUid);
+                const infractionCount = userInfractions.length;
 
                 return `
                     <div class="list-item ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">
@@ -836,7 +846,10 @@
                             </button>
                             ` : ''}
                             <button onclick="window.showUserInfractions('${user.username}', '${user.authUid}')" 
-                                class="bg-gray-500 hover:bg-gray-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Infrazioni</button>
+                                class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[100px] flex items-center justify-center">
+                                Segnalazioni 
+                                ${infractionCount > 0 ? `<span class="badge badge-infraction ml-1">${infractionCount}</span>` : ''}
+                            </button>
                         </div>
                     </div>
                 `;
@@ -874,7 +887,7 @@
                                 class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold py-1 px-3 rounded-lg min-w-[80px]">Rimuovi</button>
                     </div>
                 </div>
-            `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna carta finta registrata nel sistema.</p>';
+            `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna carta finta registrata nel sistema.</p>'}
             
             // Candidature Lavoro
             const pendingApplications = (window.jobApplications || []).filter(app => app.status === 'pending');
@@ -1132,6 +1145,22 @@
                         else if(document.getElementById('jobs-view')) renderJobsView();
                     }
                 }, (error) => console.error("Errore nel listener Candidature:", error));
+                
+                // 5. All Infractions (Admin)
+                const qInfractions = getInfractionsCollection();
+                onSnapshot(qInfractions, (snapshot) => {
+                    window.allInfractions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if (document.getElementById('content').innerHTML.includes('Dashboard Admin') || document.getElementById('infraction-modal-container')) {
+                         renderAdminDashboard();
+                         // Se il modale è aperto, lo ricarica
+                         const container = document.getElementById('infraction-modal-container');
+                         if (container) {
+                             const username = container.dataset.username;
+                             const uid = container.dataset.uid;
+                             showUserInfractions(username, uid);
+                         }
+                    }
+                }, (error) => console.error("Errore nel listener Infrazioni:", error));
 
                 
             } else {
@@ -1482,7 +1511,7 @@
         const renderUserJobsView = () => {
             if (currentUserData.job) {
                 const jobName = window.AVAILABLE_JOBS[currentUserData.job] || currentUserData.job;
-                const quitDisabled = currentUserData.quitCount >= MAX_QUIT_COUNT; // AGGIORNATO IL LIMITE
+                const quitDisabled = currentUserData.quitCount >= MAX_QUIT_COUNT; 
                 
                 let payRateHtml = '';
                 if (currentUserData.job === 'nurse') {
@@ -1579,12 +1608,12 @@
         
         const handleQuitJob = () => {
             const jobName = window.AVAILABLE_JOBS[currentUserData.job];
-            if (currentUserData.quitCount >= MAX_QUIT_COUNT) { // AGGIORNATO IL LIMITE
+            if (currentUserData.quitCount >= MAX_QUIT_COUNT) { 
                  showMessageBox("Attenzione", `Hai raggiunto il limite massimo di dimissioni (${MAX_QUIT_COUNT}). Non puoi dimetterti di nuovo.`, "alert");
                  return;
             }
             
-            showMessageBox("Conferma Dimissioni", `Sei sicuro di volerti dimettere dal tuo ruolo di ${jobName}? Questo consumerà una delle tue ${MAX_QUIT_COUNT} opportunità di dimissioni.`, 'alert', async () => { // AGGIORNATO IL MESSAGGIO
+            showMessageBox("Conferma Dimissioni", `Sei sicuro di volerti dimettere dal tuo ruolo di ${jobName}? Questo consumerà una delle tue ${MAX_QUIT_COUNT} opportunità di dimissioni.`, 'alert', async () => { 
                 showLoader(true);
                 try {
                     const userRef = doc(getAdminUsersCollection(), currentUserData.username);
@@ -1625,12 +1654,135 @@
             showLoader(false);
         };
         
-        // Funzioni non implementate per completezza
+        // --- INFRACTION LOGIC & UI (IMPLEMENTAZIONE PER SEGNALARE ERRORI) ---
+
+        const showUserInfractions = (username, uid) => {
+            if (!isAdmin) return;
+            
+            // Filtra le infrazioni per l'utente specificato
+            const userInfractions = window.allInfractions.filter(i => i.infractedUid === uid);
+            
+            const container = document.getElementById('app-container');
+            const existingModal = document.getElementById('infraction-modal-container');
+            if (existingModal) existingModal.remove(); // Rimuove il vecchio modale
+
+            const infractionsHtml = userInfractions.length > 0 ? userInfractions.map(inf => `
+                <div class="bg-pink-50 p-3 rounded-lg border border-pink-200 mb-3 flex justify-between items-start">
+                    <div class="flex-1 min-w-0 pr-3">
+                        <p class="font-semibold text-pink-800">${inf.reason}</p>
+                        <p class="text-xs text-pink-700 mt-1">${inf.details || 'Nessun dettaglio.'}</p>
+                        <p class="text-xs text-gray-500 mt-2">Segnalato da: ${inf.reportedBy} il ${new Date(inf.timestamp).toLocaleDateString()}</p>
+                    </div>
+                    <button onclick="window.deleteInfraction('${inf.id}', '${username}')" class="text-red-500 hover:text-red-700 text-xs font-semibold p-1">
+                        Elimina
+                    </button>
+                </div>
+            `).join('') : '<p class="text-center text-gray-500 py-4">Nessuna segnalazione di errore registrata per questo utente.</p>';
+
+
+            const modalHTML = `
+                <div id="infraction-modal-container" data-username="${username}" data-uid="${uid}" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="card max-w-lg max-h-[80vh] overflow-y-auto">
+                        <h3 class="text-xl font-bold text-gray-900 border-b pb-3 mb-4 flex justify-between items-center">
+                            Segnalazioni Errori Utente: ${username}
+                            <button onclick="document.getElementById('infraction-modal-container').remove()" class="text-gray-400 hover:text-gray-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </h3>
+                        
+                        <button onclick="window.renderInfractionModal('${username}', '${uid}')" class="btn-primary mb-6 bg-pink-600 hover:bg-pink-700">
+                            + Aggiungi Nuova Segnalazione
+                        </button>
+                        
+                        <div class="mb-4">
+                            ${infractionsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterend', modalHTML);
+        };
+        
+        const renderInfractionModal = (username, uid) => {
+            if (!isAdmin) return;
+            const container = document.getElementById('app-container');
+            const existingModal = document.getElementById('new-infraction-modal');
+            if (existingModal) existingModal.remove();
+
+            const modalHTML = `
+                <div id="new-infraction-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="card max-w-md">
+                        <h3 class="text-lg font-bold text-gray-900 border-b pb-3 mb-4">Nuova Segnalazione per ${username}</h3>
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Motivo Segnalazione</label>
+                        <input type="text" id="infraction_reason" placeholder="Es. Puntine non approvate, Trolling, Bug Exploiting" class="w-full p-3 mb-4 border border-gray-300 rounded-lg" required />
+                        
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Dettagli (Descrizione Errore/Comportamento)</label>
+                        <textarea id="infraction_details" placeholder="Descrivi in dettaglio l'infrazione/errore..." class="w-full p-3 mb-6 border border-gray-300 rounded-lg"></textarea>
+                        
+                        <div class="flex justify-end space-x-3">
+                            <button onclick="document.getElementById('new-infraction-modal').remove()" class="btn-secondary w-auto px-4 py-2">Annulla</button>
+                            <button onclick="window.submitInfraction('${username}', '${uid}')" class="btn-primary w-auto px-4 py-2 bg-pink-600 hover:bg-pink-700">Registra Segnalazione</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterend', modalHTML);
+        };
+
+        const submitInfraction = async (infractedUsername, infractedUid) => {
+            if (!isAdmin) return;
+            
+            const reason = document.getElementById('infraction_reason').value.trim();
+            const details = document.getElementById('infraction_details').value.trim();
+
+            if (!reason) {
+                showMessageBox("Attenzione", "Il motivo della segnalazione è obbligatorio.", "alert");
+                return;
+            }
+
+            document.getElementById('new-infraction-modal').remove(); 
+            showLoader(true);
+
+            try {
+                await addDoc(getInfractionsCollection(), {
+                    infractedUsername: infractedUsername,
+                    infractedUid: infractedUid,
+                    reason: reason,
+                    details: details,
+                    reportedBy: currentUserData.username,
+                    timestamp: new Date().toISOString()
+                });
+                showMessageBox("Successo", `Segnalazione per ${infractedUsername} registrata con successo!`, "success");
+            } catch (error) {
+                console.error("Errore nel salvataggio dell'infrazione:", error);
+                showMessageBox("Errore", "Impossibile registrare la segnalazione.", "error");
+            }
+            showLoader(false);
+            // Non c'è bisogno di chiamare showUserInfractions, il listener lo farà
+        };
+        
+        const deleteInfraction = (infractionId, username) => {
+            showMessageBox("Conferma Eliminazione", `Sei sicuro di voler ELIMINARE questa segnalazione per ${username}?`, 'error', async () => {
+                showLoader(true);
+                try {
+                    await deleteDoc(doc(getInfractionsCollection(), infractionId));
+                    showMessageBox("Successo", "Segnalazione eliminata.", "success");
+                } catch (error) {
+                    console.error("Errore nell'eliminazione della segnalazione:", error);
+                    showMessageBox("Errore", "Impossibile rimuovere la segnalazione.", "error");
+                }
+                showLoader(false);
+            });
+        };
+        
+        // --- FINE INFRACTION LOGIC & UI ---
+        
+        // Funzioni che non fanno più nulla
         const showNotImplemented = () => showMessageBox("Non Implementato", "Questa funzionalità non è ancora disponibile in questa versione.", "alert");
         const handleFireUser = showNotImplemented;
-        const renderInfractionModal = showNotImplemented;
-        const submitInfraction = showNotImplemented;
-        const showUserInfractions = showNotImplemented;
         const switchJobTab = showNotImplemented;
 
 
@@ -1870,7 +2022,7 @@
         window.registerNewCard = registerNewCard;
         window.renderBalanceModal = renderBalanceModal;
         window.handleAdminCardAction = handleAdminCardAction;
-        window.handleCardTransfer = handleCardTransfer; // Bonifico per Banchiere
+        window.handleCardTransfer = handleCardTransfer; 
         
         // EPUNT FUNCTIONS
         window.renderEpuntMarketplace = renderEpuntMarketplace;
@@ -1885,6 +2037,16 @@
         window.handleApplyForJob = handleApplyForJob;
         window.handleQuitJob = handleQuitJob;
         window.handleJobApplication = handleJobApplication;
+        
+        // INFRACTION FUNCTIONS (NUOVE)
+        window.showUserInfractions = showUserInfractions;
+        window.renderInfractionModal = renderInfractionModal;
+        window.submitInfraction = submitInfraction;
+        window.deleteInfraction = deleteInfraction;
+        
+        // FUNZIONI NON IMPLEMENTATE
+        window.handleFireUser = handleFireUser;
+        window.switchJobTab = switchJobTab;
         
     </script>
 </body>
